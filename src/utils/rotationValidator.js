@@ -1,5 +1,6 @@
-const getPlayerAtZone = (players, zone) =>
-  players.find((player) => player.zone === zone);
+const getPlayerAtZone = (players, zone) => (
+  players.find((player) => player.zone === zone)
+);
 
 const positionChecks = [
   {
@@ -24,6 +25,7 @@ const validateRows = (players, tolerance) => {
     .filter(({ zones, test }) => {
       const first = getPlayerAtZone(players, zones[0]);
       const second = getPlayerAtZone(players, zones[1]);
+
       return !test(first, second, tolerance);
     })
     .map(({ message }) => message);
@@ -50,14 +52,20 @@ export const validateFormation = ({
   players,
   teamState,
   serverId,
-  tolerance = 0
+  tolerance = 0.5
 }) => {
-  const expectedServer = getPlayerAtZone(players, 1);
-  const rotationFault =
-    teamState === 'serving' && Number(serverId) !== expectedServer.id;
+  if (teamState === 'libre') {
+    return {
+      valid: true,
+      rotationFault: false,
+      positionFaults: [],
+      expectedServer: getPlayerAtZone(players, 1)
+    };
+  }
 
-  const positionFaults =
-    teamState === 'receiving' ? validateRows(players, tolerance) : [];
+  const expectedServer = getPlayerAtZone(players, 1);
+  const rotationFault = Number(serverId) !== expectedServer.id;
+  const positionFaults = validateRows(players, tolerance);
 
   return {
     valid: !rotationFault && positionFaults.length === 0,
