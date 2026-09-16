@@ -54,8 +54,10 @@ function Court({ players, onMovePlayer }) {
   return (
     <div className="court-shell">
       <div className="court-top-label">RED · LÍNEA CENTRAL</div>
+
       <div className="court" ref={courtRef}>
         <div className="net" />
+
         <div className="attack-line">
           <span>Línea de ataque · 3 m</span>
         </div>
@@ -72,7 +74,10 @@ function Court({ players, onMovePlayer }) {
             className="player"
             key={player.id}
             aria-label={`${player.name}, rol ${player.role}, posición ${player.zone}`}
-            animate={{ left: `${player.x}%`, top: `${player.y}%` }}
+            animate={{
+              left: `${player.x}%`,
+              top: `${player.y}%`
+            }}
             transition={{ duration: 0 }}
             style={{ '--player-color': player.color }}
             onPointerDown={(event) => handlePointerDown(event, player)}

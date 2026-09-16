@@ -26,7 +26,7 @@ const validateRows = (players, tolerance) => {
       const first = getPlayerAtZone(players, zones[0]);
       const second = getPlayerAtZone(players, zones[1]);
 
-      return !test(first, second, tolerance);
+      return !first || !second || !test(first, second, tolerance);
     })
     .map(({ message }) => message);
 
@@ -37,40 +37,58 @@ const validateRows = (players, tolerance) => {
   const zone6 = getPlayerAtZone(players, 6);
   const zone1 = getPlayerAtZone(players, 1);
 
-  if (!(zone4.x + tolerance < zone3.x && zone3.x < zone2.x - tolerance)) {
-    faults.push('En la línea delantera, zona 3 debe estar entre las zonas 4 y 2.');
+  if (
+    !zone4 ||
+    !zone3 ||
+    !zone2 ||
+    !(zone4.x + tolerance < zone3.x && zone3.x < zone2.x - tolerance)
+  ) {
+    faults.push(
+      'En la línea delantera, zona 3 debe estar entre las zonas 4 y 2.'
+    );
   }
 
-  if (!(zone5.x + tolerance < zone6.x && zone6.x < zone1.x - tolerance)) {
-    faults.push('En la línea de fondo, zona 6 debe estar entre las zonas 5 y 1.');
+  if (
+    !zone5 ||
+    !zone6 ||
+    !zone1 ||
+    !(zone5.x + tolerance < zone6.x && zone6.x < zone1.x - tolerance)
+  ) {
+    faults.push(
+      'En la línea de fondo, zona 6 debe estar entre las zonas 5 y 1.'
+    );
   }
 
   return faults;
 };
 
+const validateLiberoZone = (players) => {
+  const liberoInFront = players.some(
+    (player) => player.role === 'L' && [2, 3, 4].includes(player.zone)
+  );
+
+  return liberoInFront
+    ? 'El líbero nunca puede ocupar una zona delantera.'
+    : null;
+};
+
 export const validateFormation = ({
   players,
   teamState,
-  serverId,
   tolerance = 0.5
 }) => {
-  if (teamState === 'libre') {
-    return {
-      valid: true,
-      rotationFault: false,
-      positionFaults: [],
-      expectedServer: getPlayerAtZone(players, 1)
-    };
+  const positionFaults = validateRows(players, tolerance);
+  const liberoFault = validateLiberoZone(players);
+
+  if (liberoFault) {
+    positionFaults.push(liberoFault);
   }
 
-  const expectedServer = getPlayerAtZone(players, 1);
-  const rotationFault = Number(serverId) !== expectedServer.id;
-  const positionFaults = validateRows(players, tolerance);
-
   return {
-    valid: !rotationFault && positionFaults.length === 0,
-    rotationFault,
+    valid: positionFaults.length === 0,
+    rotationFault: false,
     positionFaults,
-    expectedServer
+    expectedServer: getPlayerAtZone(players, 1),
+    teamState
   };
 };

@@ -6,13 +6,7 @@ import SafeIcon from '../common/SafeIcon';
 const { FiCheckCircle, FiAlertCircle, FiInfo } = FiIcons;
 
 function ValidationCard({ result, teamState, systemType }) {
-  const messages = [
-    ...(result.rotationFault
-      ? [`Falta de rotación: debe sacar ${result.expectedServer.name}.`]
-      : []),
-    ...result.positionFaults
-  ];
-
+  const messages = result.positionFaults;
   const isFree = teamState === 'libre';
 
   return (
@@ -21,14 +15,12 @@ function ValidationCard({ result, teamState, systemType }) {
         <SafeIcon icon={result.valid ? FiCheckCircle : FiAlertCircle} />
         <div>
           <span>
-            {isFree ? 'Validación del modo libre' : `Validación del sistema ${systemType}`}
+            {isFree
+              ? 'Validación del modo libre'
+              : `Validación del sistema ${systemType}`}
           </span>
           <strong>
-            {isFree
-              ? 'Juego libre activo'
-              : result.valid
-                ? 'Sistema reglamentario'
-                : 'Revisión necesaria'}
+            {result.valid ? 'Posición reglamentaria' : 'Falta de posición'}
           </strong>
         </div>
       </div>
@@ -41,12 +33,7 @@ function ValidationCard({ result, teamState, systemType }) {
           exit={{ opacity: 0 }}
           className="validation-message"
         >
-          {isFree ? (
-            <p>
-              En este modo los jugadores pueden desplazarse libremente. No se
-              señalan faltas de posición ni de saque.
-            </p>
-          ) : messages.length > 0 ? (
+          {messages.length > 0 ? (
             <ul>
               {messages.map((message) => (
                 <li key={message}>{message}</li>
@@ -54,8 +41,9 @@ function ValidationCard({ result, teamState, systemType }) {
             </ul>
           ) : (
             <p>
-              Se respeta el orden de rotación y las relaciones entre
-              delanteros, zagueros y jugadores laterales.
+              {isFree
+                ? 'Todos los jugadores respetan las relaciones de posición. Puedes seguir moviéndolos libremente.'
+                : 'Se respeta el orden de rotación y la sustitución reglamentaria entre centrales y líbero.'}
             </p>
           )}
         </motion.div>
@@ -64,8 +52,8 @@ function ValidationCard({ result, teamState, systemType }) {
       <div className="rule-note">
         <SafeIcon icon={FiInfo} />
         {isFree
-          ? 'El modo libre sirve para mover y explorar la pista sin validaciones.'
-          : 'El líbero puede sustituir a jugadores zagueros, pero no puede bloquear ni atacar por encima de la red.'}
+          ? 'En Libre no se aplica ninguna formación táctica: los jugadores parten de sus zonas neutrales y puedes comprobar las faltas al moverlos.'
+          : 'El líbero nunca sube a zona delantera. Cuando llega a Z4, pasa a ser central; el central que llega a Z1 pasa a ser líbero.'}
       </div>
     </section>
   );

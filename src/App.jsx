@@ -6,9 +6,10 @@ import Court from './components/Court';
 import RulesPanel from './components/RulesPanel';
 import ValidationCard from './components/ValidationCard';
 import {
+  createNeutralPlayers,
   getRotatedZone,
-  INITIAL_PLAYERS,
   TACTICAL_PRESETS,
+  updatePlayerAtZone,
   ZONES
 } from './data/volleyball';
 import { validateFormation } from './utils/rotationValidator';
@@ -17,7 +18,7 @@ import './App.css';
 const { FiMove, FiActivity } = FiIcons;
 
 function App() {
-  const [players, setPlayers] = useState(INITIAL_PLAYERS);
+  const [players, setPlayers] = useState(createNeutralPlayers);
   const [teamState, setTeamState] = useState('libre');
   const [systemType, setSystemType] = useState('5-1');
   const [tacticalPhase, setTacticalPhase] = useState('receiving');
@@ -36,15 +37,10 @@ function App() {
     const preset = TACTICAL_PRESETS[rotation];
 
     setPlayers((current) => current.map((player) => {
-      const rolePreset = preset[player.role];
+      const rolePreset = preset[player.id];
       const position = rolePreset[phase];
 
-      return {
-        ...player,
-        zone: rolePreset.zone,
-        x: position.x,
-        y: position.y
-      };
+      return updatePlayerAtZone(player, rolePreset.zone, position);
     }));
 
     setActiveRotation(rotation);
@@ -55,6 +51,8 @@ function App() {
 
     if (state === 'systems') {
       applyPreset(activeRotation, tacticalPhase);
+    } else {
+      setPlayers(createNeutralPlayers());
     }
   };
 
@@ -72,7 +70,9 @@ function App() {
 
   const movePlayer = (id, x, y) => {
     setPlayers((current) => current.map((player) => (
-      player.id === id ? { ...player, x, y } : player
+      player.id === id
+        ? { ...player, x, y }
+        : player
     )));
   };
 
@@ -90,17 +90,12 @@ function App() {
     setPlayers((current) => current.map((player) => {
       const zone = getRotatedZone(player.zone, direction);
 
-      return {
-        ...player,
-        zone,
-        x: ZONES[zone].x,
-        y: ZONES[zone].y
-      };
+      return updatePlayerAtZone(player, zone, ZONES[zone]);
     }));
   };
 
   const reset = () => {
-    setPlayers(INITIAL_PLAYERS);
+    setPlayers(createNeutralPlayers());
     setTeamState('libre');
     setSystemType('5-1');
     setTacticalPhase('receiving');
