@@ -53,7 +53,7 @@ function ValidationCard({ result, teamState, systemType }) {
         <SafeIcon icon={FiInfo} />
         {isFree
           ? 'En Libre no se aplica ninguna formación táctica: los jugadores parten de sus zonas neutrales y puedes comprobar las faltas al moverlos.'
-          : 'El líbero nunca sube a zona delantera. Cuando llega a Z4, pasa a ser central; el central que llega a Z1 pasa a ser líbero.'}
+          : 'El líbero solo puede jugar en la zaga. Habitualmente ocupa Z5 y reemplaza al central zaguero; si se desplaza a Z6, el punta cubre Z5 y el líbero pasa a defender desde Z6.'}
       </div>
     </section>
   );
