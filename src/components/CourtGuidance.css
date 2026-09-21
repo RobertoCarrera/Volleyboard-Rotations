@@ -4,8 +4,8 @@
   z-index: 6;
   width: 34px;
   height: 34px;
-  color: #b8f05a;
-  filter: drop-shadow(0 2px 3px rgba(7,27,22,0.55));
+  color: #ef3f35;
+  filter: drop-shadow(0 2px 3px rgba(69,15,10,0.5));
   pointer-events: none;
   animation: guidance-pulse 1.15s ease-in-out infinite;
 }
@@ -32,31 +32,84 @@
   transform: translate(calc(-50% + var(--guidance-offset)),-50%) !important;
 }
 
+.fault-connection {
+  color: #e5332a;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 2px rgba(91,17,13,0.42));
+}
+
+.fault-connection path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-dasharray: 2.4 1.1;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.fault-connection circle {
+  fill: currentColor;
+  stroke: #fff8de;
+  stroke-width: 0.45;
+}
+
 .tactical-arrow {
+  pointer-events: none;
   filter: drop-shadow(0 3px 3px rgba(35,18,10,0.78));
 }
 
 .tactical-arrow .arrow-path {
+  fill: none;
   stroke: var(--arrow-color);
   stroke-width: 1.8;
   stroke-dasharray: 2.35 0.85;
   stroke-linecap: round;
   opacity: 1;
+  pointer-events: none;
   vector-effect: non-scaling-stroke;
 }
 
 .tactical-arrow .arrow-control {
-  fill: var(--arrow-color);
+  fill: #fff8de;
   stroke: var(--arrow-color);
-  stroke-width: 0.9;
-  filter: drop-shadow(0 2px 2px rgba(35,18,10,0.68));
+  stroke-width: 0.8;
+  cursor: grab;
+  pointer-events: all;
+  filter: drop-shadow(0 2px 2px rgba(35,18,10,0.72));
+  vector-effect: non-scaling-stroke;
+}
+
+.tactical-arrow .arrow-control:hover {
+  fill: var(--arrow-color);
+  stroke: #fff8de;
+  stroke-width: 1.1;
+}
+
+.tactical-arrow .arrow-control:active {
+  cursor: grabbing;
 }
 
 .tactical-arrow .arrow-end-icon {
   fill: var(--arrow-color);
   stroke: var(--arrow-color);
   stroke-width: 0.8;
+  pointer-events: none;
+  cursor: default;
   filter: drop-shadow(0 3px 3px rgba(35,18,10,0.78));
+}
+
+.tactical-arrow .editable-arrow-end {
+  pointer-events: all;
+  cursor: grab;
+}
+
+.tactical-arrow .editable-arrow-end:active {
+  cursor: grabbing;
+}
+
+.tactical-arrow .fixed-arrow-end {
+  pointer-events: none;
+  cursor: default;
 }
 
 .tactical-arrow .attack-end-icon path {
@@ -83,23 +136,69 @@
   stroke-linejoin: round;
 }
 
-.arrow-control:hover,
-.arrow-end-icon:hover {
-  filter: drop-shadow(0 0 4px rgba(255,248,222,0.72));
-}
-
-.arrow-control:active,
-.arrow-end-icon:active {
-  cursor: grabbing;
-}
-
 .player {
   filter: saturate(1.12) contrast(1.08);
 }
 
+.player-locked {
+  cursor: default;
+  pointer-events: none;
+}
+
+.player-editable {
+  cursor: grab;
+}
+
+.player-editable:active {
+  cursor: grabbing;
+}
+
+.player .server-ball {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  right: -24px;
+  width: 27px;
+  height: 27px;
+  margin: 0;
+  border: 3px solid #fff8de;
+  border-radius: 50%;
+  color: #17342b;
+  background: #f7d65c;
+  box-shadow:
+    0 5px 10px rgba(35,18,10,0.35),
+    -3px 0 0 -1px #f7d65c;
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.player .server-ball::before {
+  position: absolute;
+  right: 20px;
+  width: 8px;
+  height: 12px;
+  border-radius: 50%;
+  background: #f7d65c;
+  content: '';
+}
+
+.player .server-ball svg {
+  position: relative;
+  z-index: 1;
+  width: 17px;
+  height: 17px;
+}
+
+.serving-player {
+  box-shadow:
+    0 0 0 3px rgba(247,214,92,0.3),
+    0 8px 18px rgba(67,36,20,0.3);
+}
+
 @keyframes guidance-pulse {
-  0%,
-  100% {
+  0%,100% {
     scale: 1;
     opacity: 0.75;
   }
@@ -117,11 +216,56 @@
     height: 29px;
   }
 
+  .player {
+    border-width: 2px;
+    box-shadow: 0 5px 12px rgba(67,36,20,0.28);
+  }
+
+  .player span:not(.server-ball) {
+    font-size: 17px;
+    line-height: 0.95;
+  }
+
+  .player small {
+    max-width: 48px;
+    margin-top: 3px;
+    font-size: 7.5px;
+    line-height: 1;
+  }
+
+  .player .player-zone-label {
+    margin-top: 3px;
+    font-size: 8px;
+  }
+
+  .position-fault {
+    border-width: 2px;
+    box-shadow:
+      0 0 0 2px rgba(239,91,74,0.32),
+      0 5px 12px rgba(67,36,20,0.28);
+  }
+
   .tactical-arrow .arrow-path {
     stroke-width: 1.55;
   }
 
+  .tactical-arrow .arrow-control {
+    r: 2;
+  }
+
   .tactical-arrow .attack-end-icon path {
     stroke-width: 1.1;
+  }
+
+  .player .server-ball {
+    right: -20px;
+    width: 23px;
+    height: 23px;
+    border-width: 2px;
+  }
+
+  .player .server-ball svg {
+    width: 14px;
+    height: 14px;
   }
 }

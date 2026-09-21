@@ -1,0 +1,26 @@
+{
+  "name": "Rotación Vóley",
+  "short_name": "Rotación",
+  "description": "Entrenador interactivo para aprender posiciones y rotaciones de voleibol.",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f4f1e8",
+  "theme_color": "#071b16",
+  "icons": [
+    {
+      "src": "https://media-manager-c.questera.ai/greta-media/cc76ec2ec846f09d0b7678ce8abad966b6b15cfbd815d897acbcc672bcb758daed108b7569ea9863a79623fb5385aba3/images/aW1hZ2UvcG5n/fd2b1aedfb9791bd72672e89731464b5.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://media-manager-c.questera.ai/greta-media/cc76ec2ec846f09d0b7678ce8abad966b6b15cfbd815d897acbcc672bcb758daed108b7569ea9863a79623fb5385aba3/images/aW1hZ2UvcG5n/fd2b1aedfb9791bd72672e89731464b5.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

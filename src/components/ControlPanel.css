@@ -1,0 +1,339 @@
+.arrow-filter.attack-only,
+.arrow-filter.defense-only {
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.arrow-filter.attack-only::before,
+.arrow-filter.attack-only::after,
+.arrow-filter.defense-only::before,
+.arrow-filter.defense-only::after {
+  display: none;
+  content: none;
+}
+
+.mode-description {
+  min-height: 48px;
+  margin: -10px 0 19px;
+  padding: 11px 12px;
+  border-left: 3px solid var(--green);
+  border-radius: 0 10px 10px 0;
+  color: var(--muted);
+  background: rgba(11, 93, 72, 0.055);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.rotation-control-block {
+  margin-bottom: 22px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rotation-control-block .rotation-selector {
+  margin-bottom: 10px;
+}
+
+.rotation-control-block .rotation-actions {
+  margin-top: 0;
+}
+
+.rotation-control-block .reset-button {
+  min-height: 38px;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+.optional-settings-label {
+  margin-bottom: 10px;
+  color: #819089;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  display: block;
+}
+
+.free-serve-setting {
+  margin: 0 0 14px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f4f6ef;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.free-serve-setting strong {
+  color: var(--ink);
+  font-size: 13px;
+  display: block;
+}
+
+.free-serve-setting div > span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  display: block;
+}
+
+.free-serve-setting button {
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: #c9cec8;
+}
+
+.free-serve-setting button span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 2px 5px rgba(16, 37, 31, 0.24);
+  transition: transform 180ms ease;
+}
+
+.free-serve-setting button.active {
+  background: var(--green);
+}
+
+.free-serve-setting button.active span {
+  transform: translateX(20px);
+}
+
+.free-arrow-settings {
+  margin-bottom: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f4f6ef;
+}
+
+.free-arrow-settings .field-label {
+  margin-bottom: 9px;
+}
+
+.free-arrow-help {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  display: block;
+}
+
+.mobile-toolbar {
+  display: none;
+}
+
+@media (max-width: 620px) {
+  .control-panel {
+    display: none;
+  }
+
+  .mobile-toolbar {
+    position: fixed;
+    z-index: 40;
+    right: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: 10px;
+    display: block;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(24px);
+    transition:
+      opacity 180ms ease,
+      transform 220ms ease,
+      visibility 180ms ease;
+  }
+
+  .mobile-toolbar.visible {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .mobile-toolbar-bar,
+  .mobile-toolbar-sheet {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: white;
+    background: rgba(7, 27, 22, 0.96);
+    box-shadow: 0 16px 42px rgba(7, 27, 22, 0.34);
+    backdrop-filter: blur(18px);
+  }
+
+  .mobile-toolbar-bar {
+    min-height: 62px;
+    padding: 7px;
+    border-radius: 18px;
+    display: grid;
+    grid-template-columns: 44px minmax(92px, 1fr) minmax(82px, 1fr) 46px;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .mobile-toolbar-bar.mobile-toolbar-bar-systems {
+    grid-template-columns:
+      minmax(112px, 1.15fr)
+      minmax(92px, 1fr)
+      46px;
+  }
+
+  .mobile-toolbar-bar button {
+    height: 44px;
+    border: 0;
+    border-radius: 12px;
+    color: white;
+    background: rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-toolbar-icon {
+    font-size: 17px;
+  }
+
+  .mobile-toolbar-reset {
+    color: #dce8e3 !important;
+  }
+
+  .mobile-toolbar-reset:active {
+    color: var(--lime) !important;
+    background: rgba(215, 246, 91, 0.14) !important;
+  }
+
+  .mobile-toolbar-rotate {
+    color: var(--green-dark) !important;
+    background: var(--lime) !important;
+    font-size: 11px;
+    font-weight: 900;
+    gap: 6px;
+  }
+
+  .mobile-toolbar-options {
+    flex-direction: column;
+    font-size: 12px;
+    gap: 0;
+  }
+
+  .mobile-toolbar-options svg:first-child {
+    margin-bottom: -2px;
+    font-size: 10px;
+  }
+
+  .mobile-toolbar-options.active {
+    color: var(--lime);
+    background: rgba(215, 246, 91, 0.14);
+  }
+
+  .mobile-toolbar-sheet {
+    max-height: min(55vh, 410px);
+    margin-bottom: 7px;
+    padding: 15px;
+    border-radius: 18px;
+    overflow-y: auto;
+    animation: mobile-sheet-in 180ms ease-out;
+  }
+
+  .mobile-toolbar-sheet-heading {
+    margin-bottom: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .mobile-toolbar-sheet-heading strong {
+    font-family: 'Manrope', sans-serif;
+    font-size: 14px;
+  }
+
+  .mobile-toolbar-sheet-heading button {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 9px;
+    color: white;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .mobile-toolbar-mode,
+  .mobile-toolbar-free {
+    padding: 4px;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.08);
+    display: grid;
+    gap: 4px;
+  }
+
+  .mobile-toolbar-mode {
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 13px;
+  }
+
+  .mobile-toolbar-free {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .mobile-toolbar-mode button,
+  .mobile-toolbar-free button {
+    min-height: 36px;
+    border: 0;
+    border-radius: 8px;
+    color: #a9bbb4;
+    background: transparent;
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .mobile-toolbar-mode button.active,
+  .mobile-toolbar-free button.active {
+    color: var(--green-dark);
+    background: var(--lime);
+  }
+
+  .mobile-toolbar-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .mobile-toolbar-field {
+    min-width: 0;
+  }
+
+  .mobile-toolbar-field > span {
+    margin: 0 0 5px 2px;
+    color: #91a69e;
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    display: block;
+  }
+
+  @keyframes mobile-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

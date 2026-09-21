@@ -1,18 +1,32 @@
 import React from 'react';
 import * as FiIcons from 'react-icons/fi';
-import { FiAlertTriangle } from 'react-icons/fi';
+import * as FaIcons from 'react-icons/fa';
+import {FiAlertTriangle} from 'react-icons/fi';
 
-const SafeIcon = ({ icon, name, ...props }) => {
+const {FaVolleyballBall} = FaIcons;
+
+const SafeIcon = ({
+  icon,
+  name,
+  fallback,
+  ...props
+}) => {
   let IconComponent;
+
   try {
     IconComponent = icon || (name && FiIcons[`Fi${name}`]);
-  } catch (e) {
+  } catch (error) {
     IconComponent = null;
   }
 
-  return IconComponent
-    ? React.createElement(IconComponent, props)
-    : <FiAlertTriangle {...props} />;
+  const FallbackIcon = fallback === 'volleyball'
+    ? FaVolleyballBall
+    : FiAlertTriangle;
+
+  return React.createElement(
+    IconComponent || FallbackIcon,
+    props
+  );
 };
 
 export default SafeIcon;
