@@ -205,9 +205,12 @@ function App() {
           </div>
         </div>
       )}
-      {showWhiteboard && auth.user ? (
-        <Whiteboard onClose={() => setShowWhiteboard(false)} />
-      ) : (
+      {auth.user && (
+        <div hidden={!showWhiteboard}>
+          <Whiteboard key={auth.user.id} onClose={() => setShowWhiteboard(false)} />
+        </div>
+      )}
+      {(!showWhiteboard || !auth.user) && (
         <section className="simulator">
           <div className="court-column">
             <Court players={players} guidance={teamState === 'libre' ? validation.guidance : []}

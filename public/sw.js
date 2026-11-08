@@ -1,4 +1,4 @@
-const CACHE_NAME='rotacion-voley-v2';
+const CACHE_NAME='rotacion-voley-v3';
 const APP_SHELL=[
   '/',
   '/index.html',
@@ -26,9 +26,12 @@ self.addEventListener('activate',(event)=> {
 });
 
 self.addEventListener('fetch',(event)=> {
+  const url=new URL(event.request.url);
   if (
     event.request.method!=='GET'
-    || !event.request.url.startsWith(self.location.origin)
+    || url.origin!==self.location.origin
+    || url.pathname==='/api'
+    || url.pathname.startsWith('/api/')
   ) {
     return;
   }
@@ -37,10 +40,12 @@ self.addEventListener('fetch',(event)=> {
     event.respondWith(
       fetch(event.request)
         .then((response)=> {
-          const copy=response.clone();
-          caches.open(CACHE_NAME).then((cache)=> {
-            cache.put('/index.html',copy);
-          });
+          if (response.ok && response.headers.get('content-type')?.includes('text/html')) {
+            const copy=response.clone();
+            caches.open(CACHE_NAME).then((cache)=> {
+              cache.put('/index.html',copy);
+            });
+          }
           return response;
         })
         .catch(()=> caches.match('/index.html'))

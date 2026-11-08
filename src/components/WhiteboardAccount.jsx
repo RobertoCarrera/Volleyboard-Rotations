@@ -8,10 +8,11 @@ const {FiChevronDown, FiUser} = FiIcons;
 const {FaGoogle} = FaIcons;
 
 export default function WhiteboardAccount({ cloud }) {
-  const { user, checking, status, signInWithGoogle, signOut } = cloud;
+  const { user, checking, status, error: sessionError, signInWithGoogle, signOut, retrySession } = cloud;
   const [open, setOpen] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const visibleError = error || sessionError;
 
   const handleGoogleSignIn = async () => {
     setBusy(true);
@@ -22,6 +23,25 @@ export default function WhiteboardAccount({ cloud }) {
       setBusy(false);
     }
   };
+
+  const handleSignOut = async () => {
+    setBusy(true);
+    setError('');
+    const message = await signOut();
+    if (message) setError(message);
+    setBusy(false);
+  };
+
+  const errorNotice = visibleError && (
+    <div className="wb-account-error" role="alert">
+      <p>{visibleError}</p>
+      {sessionError && retrySession && (
+        <button type="button" disabled={checking || busy} onClick={() => { setError(''); retrySession(); }}>
+          Comprobar sesión de nuevo
+        </button>
+      )}
+    </div>
+  );
 
   if (user) {
     return (
@@ -34,7 +54,7 @@ export default function WhiteboardAccount({ cloud }) {
           aria-haspopup="dialog"
         >
           <SafeIcon icon={FiUser} />
-          <span>{user.name || user.email}</span>
+          <span>{user.name || user.email || 'Mi cuenta'}</span>
           <SafeIcon icon={FiChevronDown} />
         </button>
         {open && (
@@ -44,10 +64,13 @@ export default function WhiteboardAccount({ cloud }) {
                 <b>{user.name || user.email}</b>
                 <small>{status || 'Sesión iniciada'}</small>
               </span>
-              <button type="button" onClick={signOut}>Cerrar sesión</button>
+              <button type="button" onClick={handleSignOut} disabled={busy || checking}>
+                {busy ? 'Cerrando sesión…' : 'Cerrar sesión'}
+              </button>
             </div>
           </div>
         )}
+        {errorNotice}
       </div>
     );
   }
@@ -58,14 +81,14 @@ export default function WhiteboardAccount({ cloud }) {
         type="button"
         className="wb-account-trigger wb-account-google-entry"
         onClick={handleGoogleSignIn}
-        disabled={busy}
-        aria-label={checking ? 'Iniciar sesión directamente con Google' : 'Iniciar sesión con Google'}
-        aria-busy={busy}
+        disabled={busy || checking}
+        aria-label={checking ? 'Comprobando sesión' : 'Iniciar sesión con Google'}
+        aria-busy={busy || checking}
       >
         <SafeIcon icon={FaGoogle} className="wb-account-google-icon" />
-        <span>{busy ? 'Abriendo Google…' : 'Continuar con Google'}</span>
+        <span>{busy ? 'Abriendo Google…' : checking ? 'Comprobando sesión…' : 'Continuar con Google'}</span>
       </button>
-      {error && <p className="wb-account-error" role="alert">{error}</p>}
+      {errorNotice}
     </div>
   );
 }
