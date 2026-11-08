@@ -1,0 +1,145 @@
+.whiteboard {
+  position: relative;
+  z-index: 2;
+  width: min(1180px, calc(100% - 32px));
+  margin: -52px auto 80px;
+  padding: clamp(18px, 3vw, 32px);
+  border: 1px solid rgba(16, 37, 31, .12);
+  border-radius: 24px;
+  background: #fffdf7;
+  box-shadow: 0 20px 55px rgba(21, 46, 37, .12);
+}
+.wb-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.wb-header h2 {
+  margin: 5px 0 8px;
+  font: 800 clamp(30px, 4vw, 44px)/1.1 'Manrope', sans-serif;
+  letter-spacing: -.045em;
+}
+.wb-header p, .wb-card p { max-width: 590px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.wb-secondary, .wb-set-list button, .wb-controls button, .wb-add button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(16, 37, 31, .14);
+  border-radius: 10px;
+  color: var(--ink);
+  background: white;
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.wb-secondary:disabled, .wb-delete:disabled, .wb-add button:disabled { opacity: .45; cursor: not-allowed; }
+.wb-set-bar { margin-bottom: 18px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+.wb-set-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.wb-set-list button { border-color: rgba(11, 93, 72, .18); color: var(--green); background: #ecf3e9; }
+.wb-set-list button.active, .wb-phase button.active, .wb-rotation button.active {
+  border-color: var(--green);
+  color: white;
+  background: var(--green);
+}
+.wb-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 20px; align-items: start; }
+.wb-stage { min-width: 0; padding: 14px; border-radius: 18px; background: #123d32; }
+.wb-controls { margin-bottom: 12px; display: grid; gap: 8px; }
+.wb-phase { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.wb-rotation { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+.wb-rotation button { padding: 0; }
+.wb-rotate { display: grid; grid-template-columns: 1fr 1.3fr; gap: 6px; }
+.wb-controls .primary { border-color: var(--lime); color: #071b16; background: var(--lime); }
+.wb-court {
+  position: relative;
+  aspect-ratio: 1;
+  border: 4px solid #fff8de;
+  background: linear-gradient(90deg, transparent 33.1%, #ffffff85 33.2%, #ffffff85 33.5%, transparent 33.6%, transparent 66.4%, #ffffff85 66.5%, #ffffff85 66.8%, transparent 66.9%), #e49b63;
+  overflow: hidden;
+}
+.wb-net { position: absolute; z-index: 4; top: 0; width: 100%; height: 9px; background: repeating-linear-gradient(90deg, #15231f 0 4px, #faf2d9 4px 8px); }
+.wb-attack-line { position: absolute; top: 33.33%; width: 100%; border-top: 3px solid #fff; }
+.wb-token {
+  position: absolute;
+  z-index: 5;
+  width: clamp(54px, 9vw, 76px);
+  height: clamp(54px, 9vw, 76px);
+  padding: 3px;
+  border: 3px solid #fff8de;
+  border-radius: 50%;
+  color: white;
+  background: var(--token-color, #0b5d48);
+  box-shadow: 0 7px 15px #35251955;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  transition: left 320ms ease, top 320ms ease;
+}
+.wb-token.empty { border-style: dashed; opacity: .72; }
+.wb-token strong { font: 800 18px/1 'Manrope', sans-serif; }
+.wb-token span { max-width: 92%; margin-top: 2px; overflow: hidden; font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.wb-token small { font-size: 8px; font-weight: 800; opacity: .9; }
+.wb-zones-info { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; color: white; }
+.wb-zones-info > div { min-height: 84px; padding: 11px; border: 1px dashed #95b4a6; border-radius: 12px; background: #0b3027; }
+.wb-zones-info strong { font-size: 11px; }
+.wb-zones-info p { color: #b9d2c8; font-size: 11px; }
+.wb-chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.wb-chip { padding: 5px 9px; border-radius: 99px; color: #071b16; background: #d7f65b; font-size: 11px; font-weight: 700; }
+.wb-chip em { margin-left: 5px; font-style: normal; font-weight: 900; opacity: .7; }
+.wb-side { display: flex; flex-direction: column; gap: 14px; }
+.wb-card { padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #f4f6ef; }
+.wb-card h3 { margin: 4px 0 6px; font: 800 20px 'Manrope', sans-serif; }
+.wb-slots { margin-top: 12px; display: grid; gap: 8px; }
+.wb-slot { padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: white; display: grid; gap: 3px; }
+.wb-slot-title { font-size: 12px; }
+.wb-slot-title b { margin-right: 4px; color: var(--green); }
+.wb-slot small { color: var(--muted); font-size: 10px; }
+.wb-slot select { padding: 8px 10px; font-size: 12px; }
+.wb-roster-head { display: flex; justify-content: space-between; align-items: center; }
+.wb-roster-head h3 { margin: 0; font: 800 18px 'Manrope', sans-serif; }
+.wb-roster-head span { color: var(--green); font-weight: 800; font-size: 12px; }
+.wb-add { margin: 12px 0; display: grid; grid-template-columns: minmax(0, 1fr) 64px auto; gap: 6px; }
+.wb-roster input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  font: inherit;
+  font-size: 12px;
+}
+.wb-add button { color: white; background: var(--green); }
+.wb-roster-list { display: grid; gap: 6px; }
+.wb-roster-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 62px 32px; align-items: center; gap: 6px; }
+.wb-roster-row em { color: var(--green); font-size: 10px; font-style: normal; font-weight: 800; }
+.wb-roster-row button { height: 34px; border: 0; border-radius: 8px; color: #b74b42; background: #fbefec; display: grid; place-items: center; }
+.wb-delete {
+  min-height: 38px;
+  border: 1px solid #e9cbc7;
+  border-radius: 10px;
+  color: #a3433a;
+  background: #fbefec;
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.wb-temp { padding: 11px; border-radius: 9px; color: #536b60; background: #e7ede5; font-size: 11px; line-height: 1.45; }
+@media (max-width: 850px) { .wb-layout { grid-template-columns: 1fr; } }
+@media (max-width: 620px) {
+  .wb-header { flex-direction: column; }
+  .wb-set-bar { flex-direction: column; align-items: stretch; }
+  .wb-zones-info { grid-template-columns: 1fr; }
+  .wb-token { width: 54px; height: 54px; border-width: 2px; }
+  .wb-token strong { font-size: 15px; }
+  .wb-token span, .wb-token small { font-size: 7px; }
+}

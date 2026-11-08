@@ -1,0 +1,181 @@
+.wb-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  margin: 0 0 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: rgba(128, 128, 128, 0.08);
+  font-size: 0.9rem;
+}
+
+.wb-account-in {
+  justify-content: space-between;
+}
+
+.wb-account-in small {
+  display: block;
+  opacity: 0.7;
+}
+
+.wb-account button {
+  padding: 0.5rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  background: rgba(128, 128, 128, 0.15);
+  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb-account-shell {
+  position: relative;
+  z-index: 20;
+}
+
+.wb-account-trigger {
+  display: inline-flex;
+  min-height: 42px;
+  max-width: 260px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 13px;
+  border: 1px solid rgba(16, 37, 31, 0.14);
+  border-radius: 12px;
+  color: #143b31;
+  background: #fff;
+  box-shadow: 0 5px 16px rgba(21, 46, 37, 0.08);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.wb-account-trigger:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(11, 93, 72, 0.35);
+  box-shadow: 0 8px 20px rgba(21, 46, 37, 0.12);
+}
+
+.wb-account-trigger:disabled {
+  cursor: wait;
+  opacity: 0.8;
+}
+
+.wb-account-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-account-trigger > svg {
+  flex: 0 0 auto;
+}
+
+.wb-account-google-icon {
+  color: #4285f4;
+}
+
+.wb-account-google-entry {
+  gap: 10px;
+  border-color: #d9dce1;
+  color: #263238;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+}
+
+.wb-account-google-entry:hover:not(:disabled) {
+  border-color: #b9c1cc;
+  background: #f8faff;
+}
+
+.wb-account-error {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(320px, calc(100vw - 32px));
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f1c7c7;
+  border-radius: 10px;
+  color: #8a2222;
+  background: #fff5f5;
+  box-shadow: 0 8px 24px rgba(60, 16, 16, 0.12);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.wb-account-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(370px, calc(100vw - 40px));
+  padding: 4px;
+  border: 1px solid rgba(16, 37, 31, 0.12);
+  border-radius: 16px;
+  background: #fffdf7;
+  box-shadow: 0 18px 48px rgba(16, 37, 31, 0.2);
+  animation: wb-account-appear 160ms ease-out;
+}
+
+.wb-account-menu .wb-account {
+  margin: 0;
+  background: transparent;
+}
+
+.wb-account-menu .wb-account-in {
+  min-height: 64px;
+  align-items: center;
+}
+
+.hero nav .wb-account-trigger {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.12);
+}
+
+.hero nav .wb-account-trigger:hover:not(:disabled) {
+  border-color: rgba(215, 246, 91, 0.65);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.hero nav .wb-account-google-entry {
+  border-color: rgba(255, 255, 255, 0.44);
+  color: #16372f;
+  background: #fff;
+  box-shadow: 0 7px 22px rgba(0, 0, 0, 0.18);
+}
+
+.hero nav .wb-account-google-entry:hover:not(:disabled) {
+  border-color: white;
+  background: #f6f8fb;
+}
+
+@keyframes wb-account-appear {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 620px) {
+  .wb-account-menu {
+    width: min(370px, calc(100vw - 52px));
+  }
+
+  .hero nav .wb-account-trigger {
+    max-width: 205px;
+    gap: 6px;
+    padding-inline: 10px;
+    font-size: 11px;
+  }
+}

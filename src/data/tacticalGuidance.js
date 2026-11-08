@@ -1,6 +1,14 @@
 import {ZONES} from './volleyball';
 
-const ATTACK_TARGETS={O: 2,C1: 3,C2: 3,R1: 4,R2: 4,COL: 2};
+const ATTACK_TARGETS={
+  O: 2,
+  C1: 3,
+  C2: 3,
+  R1: 4,
+  R2: 4,
+  COL: 2
+};
+
 const PIPE_ATTACK_TARGET={x: 50,y: 38};
 const BACK_ROW_OPPOSITE_TARGET={x: 83,y: 38};
 const FREE_ARROW_DISTANCE=14;
@@ -44,8 +52,8 @@ const ROTATION_ARROW_POINTS={
     attack: {
       C: {toX: 71,toY: 7,controlX: 48,controlY: 33},
       C1: {toX: 50,toY: 21,controlX: 43,controlY: 43},
-      P1: {toX: 50,toY: 38,controlX: 66,controlY: 68},
-      P2: {toX: 3,toY: 7,controlX: 8,controlY: 43},
+      P1: {toX: 3,toY: 7,controlX: 8,controlY: 43},
+      P2: {toX: 50,toY: 38,controlX: 66,controlY: 68},
       OP: {toX: 83,toY: 38,controlX: 94,controlY: 54}
     }
   },
@@ -104,9 +112,9 @@ const canAttack=(player)=> {
   if (player.id==='OP' || player.role==='O') return true;
   if (isReceiver(player)) return true;
   if (player.id==='C1' && ['R5','R6'].includes(player.rotation)) return true;
+
   return isFrontRowPlayer(player) && (
-    Boolean(ATTACK_TARGETS[player.role]) ||
-    player.id==='C1'
+    Boolean(ATTACK_TARGETS[player.role]) || player.id==='C1'
   );
 };
 
@@ -132,12 +140,14 @@ const getK2Target=(player)=> {
   if (player.y < 62) return {x: player.x,y: 63};
   if (player.x < 35) return {x: 8,y: 84};
   if (player.x > 65) return {x: 92,y: 84};
+
   return {x: 50,y: 93};
 };
 
 const getDefenseDefaults=(player,rotation)=> {
   const configured=ROTATION_ARROW_POINTS[rotation]?.defense?.[player.id];
   if (configured) return configured;
+
   return createArrowPoint(player,getK2Target(player),'defense');
 };
 
@@ -149,6 +159,7 @@ export const getAttackGuidance=(
   arrowPoints
 )=> {
   const isFree=teamState==='libre';
+
   if (!isFree && (teamState!=='systems' || tacticalPhase!=='receiving')) {
     return [];
   }
@@ -178,6 +189,7 @@ export const getDefenseGuidance=(
   arrowPoints
 )=> {
   const isFree=teamState==='libre';
+
   if (!isFree && (teamState!=='systems' || tacticalPhase!=='serving')) {
     return [];
   }

@@ -9,6 +9,11 @@ export const K1_STANDARD_LAYOUT={
   },
   R3: {
     C: {x: 46,y: 31}
+  },
+  R4: {
+    P1: {x: 19.5,y: 64.5},
+    P2: {x: 50,y: 68},
+    L: {x: 84,y: 65}
   }
 };
 

@@ -1,0 +1,48 @@
+.workspace-switch {
+  position: relative;
+  z-index: 3;
+  width: min(1180px, calc(100% - 32px));
+  margin: -48px auto 56px;
+  padding: 14px;
+  border: 2px solid #d7f65b;
+  border-radius: 20px;
+  color: white;
+  background: #092c23;
+  box-shadow: 0 18px 42px rgba(7, 27, 22, .32), 0 0 0 5px rgba(215, 246, 91, .12);
+}
+.workspace-switch-caption {
+  margin: 1px 0 10px 4px;
+  color: #d7f65b;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .14em;
+  display: block;
+}
+.workspace-switch-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.workspace-switch button {
+  min-height: 78px;
+  padding: 13px 18px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 13px;
+  color: #e5f2ec;
+  background: rgba(255, 255, 255, .08);
+  text-align: left;
+}
+.workspace-switch button strong { font: 800 19px 'Manrope', sans-serif; display: block; }
+.workspace-switch button small { margin-top: 5px; color: #a9c5b9; font-size: 12px; display: block; }
+.workspace-switch button.active {
+  border-color: #d7f65b;
+  color: #071b16;
+  background: #d7f65b;
+  box-shadow: 0 5px 18px rgba(215, 246, 91, .22);
+}
+.workspace-switch button.active small { color: #315139; }
+.workspace-switch + .simulator, .workspace-switch + .whiteboard { margin-top: -35px; }
+@media (max-width: 620px) {
+  .workspace-switch { margin-top: -55px; margin-bottom: 48px; padding: 10px; }
+  .workspace-switch-caption { font-size: 9px; }
+  .workspace-switch-options { gap: 6px; }
+  .workspace-switch button { min-height: 82px; padding: 9px; }
+  .workspace-switch button strong { font-size: 14px; }
+  .workspace-switch button small { font-size: 10px; line-height: 1.3; }
+}
