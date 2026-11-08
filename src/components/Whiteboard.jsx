@@ -105,6 +105,27 @@ export default function Whiteboard({onClose}) {
         </div>
       </div>
 
+      {cloud.checking && <p role="status">{cloud.status || 'Comprobando sesión…'}</p>}
+      {cloud.error && (
+        <div className="wb-temp" role="alert">
+          <p>{cloud.error}</p>
+          <button type="button" className="wb-secondary" onClick={cloud.retry} disabled={cloud.checking}>
+            Reintentar
+          </button>
+          {!cloud.user && (
+            <button type="button" className="wb-secondary" onClick={cloud.signInWithGoogle} disabled={cloud.checking}>
+              Iniciar sesión con Google
+            </button>
+          )}
+        </div>
+      )}
+
+      <fieldset
+        disabled={cloud.checking || !cloud.isReady}
+        aria-busy={cloud.checking}
+        aria-label="Editar pizarra"
+        style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+      >
       <div className="wb-set-bar">
         <div className="wb-set-list">
           {sets.map((set) => (
@@ -196,13 +217,16 @@ export default function Whiteboard({onClose}) {
           <button type="button" className="wb-delete" onClick={removeSet} disabled={sets.length === 1}>
             <SafeIcon icon={FiTrash2} /> Eliminar este set
           </button>
-          <div className="wb-temp">
-            {cloud.user
+          <div className="wb-temp" role="status" aria-live="polite">
+            {cloud.checking || cloud.error
+              ? cloud.status
+              : cloud.user
               ? `Guardado automático en tu cuenta · ${cloud.status || 'Sincronizado'}`
               : 'Sesión temporal · Inicia sesión para guardar tu pizarra.'}
           </div>
         </aside>
       </div>
+      </fieldset>
     </section>
   );
 }
