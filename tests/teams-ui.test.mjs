@@ -105,7 +105,12 @@ function button(tree, label) {
   assert.ok(result, `Missing action: ${label}`);
   return result;
 }
-async function click(tree, label) { await act(async () => { await button(tree, label).props.onClick(); }); }
+async function click(tree, label) {
+  await act(async () => { await button(tree, label).props.onClick({ detail: 0, currentTarget: { matches: () => false } }); });
+}
+async function checkPlayer(tree, name, checked) {
+  await act(async () => { tree.root.findByProps({ 'aria-label': `Convocar a ${name}` }).props.onChange({ target: { checked }, currentTarget: { matches: () => false } }); });
+}
 async function change(tree, label, value) {
   const node = tree.root.findByProps({ 'aria-label': label });
   await act(async () => { node.props.onChange({ target: { value } }); });
@@ -113,12 +118,16 @@ async function change(tree, label, value) {
 async function submit(tree, label) {
   await act(async () => { await tree.root.findByProps({ 'aria-label': label }).props.onSubmit({ preventDefault() {} }); });
 }
-async function mount(t) {
+async function mount(t, configure = () => {}) {
   const restore = installBrowser();
   const api = backend(t);
+  configure(api);
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let tree;
-  await act(async () => { tree = create(React.createElement(Whiteboard, { onClose() {} })); });
+  await act(async () => { tree = create(React.createElement(Whiteboard, { onClose() {} }), {
+    createNodeMock: (element) => element.type === 'section' && element.props.className?.includes('wb-team-board')
+      ? { contains: (target) => target.inBoard === true } : null
+  }); });
   t.after(async () => { await act(async () => { tree.unmount(); }); restore(); });
   return { tree, api };
 }
@@ -207,7 +216,7 @@ test('player edits resolve across sets, removing a set member is distinct from r
   await submit(tree, 'Guardar jugador');
   await click(tree, 'Pizarra');
   assert.ok(tree.root.findAllByProps({ 'aria-label': 'Ana María en COL, zona 1' }).length > 0);
-  await click(tree, 'Quitar a Ana María de este set');
+  await checkPlayer(tree, 'Ana María', false);
   await act(async () => { t.mock.timers.tick(801); });
   assert.equal(api.players.find((item) => item.id === 31).deleted, false);
   assert.equal(api.boards.get(12).sets[1].roster.length, 0);
@@ -237,6 +246,119 @@ test('a failed pending save keeps the selected team in place instead of discardi
   await change(tree, 'Equipo de la pizarra', '13');
   assert.equal(tree.root.findByProps({ 'aria-label': 'Equipo de la pizarra' }).props.value, '13');
   assert.equal(api.boards.get(12).sets.length, 2, 'The original team must be saved before leaving');
+});
+
+function extraPlayers(api, count = 11) {
+  for (let index = 0; index < count; index++) api.players.push({ ...api.players[0], id: 32 + index,
+    name: `Jugador ${index + 2}`, number: String(index + 2), ratings: { COL: null, O: 4, R: 0, C: 3, L: null } });
+}
+
+test('bulk selection keeps the lineup, supports more than eight players and removes only the current set member', async (t) => {
+  const { tree, api } = await mount(t, (data) => {
+    extraPlayers(data);
+    data.players.push({ ...data.players[0], id: 90, name: 'Archivado', deleted: true });
+  });
+  await click(tree, 'Añadir a todos al banquillo');
+  await click(tree, 'Añadir a todos al banquillo');
+  await act(async () => { t.mock.timers.tick(801); });
+  let roster = api.boards.get(12).sets[0].roster;
+  assert.equal(roster.length, 12);
+  assert.equal(new Set(roster.map((entry) => entry.id)).size, 12);
+  assert.deepEqual(roster.find((entry) => entry.id === 31), { id: 31, slot: 'COL' });
+  assert.equal(roster.filter((entry) => entry.slot === null).length, 11);
+  assert.equal(roster.some((entry) => entry.id === 90), false);
+  assert.equal(tree.root.findAllByProps({ 'aria-label': 'Añadir jugador al set' }).length, 0);
+  await click(tree, 'Colocar a Jugador 2');
+  await click(tree, 'Colocar a Jugador 2 en COL, zona 1');
+  await act(async () => { t.mock.timers.tick(801); });
+  roster = api.boards.get(12).sets[0].roster;
+  assert.equal(roster.find((entry) => entry.id === 32).slot, 'COL');
+  assert.equal(roster.find((entry) => entry.id === 31).slot, null, 'An occupied destination sends its previous player to the bench');
+  await click(tree, 'Quitar a Ana de este set');
+  assert.equal(tree.root.findByProps({ 'aria-label': 'Convocar a Ana' }).props.checked, false);
+  await act(async () => { t.mock.timers.tick(801); });
+  assert.equal(api.boards.get(12).sets[0].roster.some((entry) => entry.id === 31), false);
+  assert.equal(api.players[0].deleted, false, 'The bench × cannot delete a player profile');
+  await checkPlayer(tree, 'Ana', true);
+  await checkPlayer(tree, 'Ana', true);
+  await act(async () => { t.mock.timers.tick(801); });
+  assert.deepEqual(api.boards.get(12).sets[0].roster.find((entry) => entry.id === 31), { id: 31, slot: null });
+  assert.equal(api.boards.get(12).sets[0].roster.length, 12);
+  assert.equal(api.mutations.some((mutation) => mutation.method === 'DELETE'), false);
+  await click(tree, 'Plantilla');
+  await click(tree, 'Pizarra');
+  assert.equal(tree.root.findAllByProps({ type: 'checkbox', checked: true }).length, 12, 'Reloading the saved board retains the full call-up');
+  assert.ok(tree.root.findAllByProps({ 'aria-label': 'Jugador 2 en COL, zona 1' }).length);
+});
+
+function pointerDriver() {
+  let hit = null;
+  let captured = false;
+  const target = { matches: () => false, closest: () => null,
+    ownerDocument: { elementFromPoint: () => hit },
+    setPointerCapture: () => { captured = true; }, hasPointerCapture: () => captured,
+    releasePointerCapture: () => { captured = false; } };
+  return {
+    event: (x, y, extra = {}) => ({ button: 0, isPrimary: true, pointerId: 7, pointerType: 'mouse',
+      clientX: x, clientY: y, currentTarget: target, preventDefault() {}, ...extra }),
+    destination(slot, inBoard = true) {
+      hit = { inBoard, getAttribute: () => slot, matches: () => false, focus() {},
+        closest: (selector) => selector === '[data-lineup-slot]' ? hit : null };
+    },
+    outside() { hit = null; }
+  };
+}
+
+test('a pointer drag assigns the stable slot, returns its occupant to the bench and suppresses the trailing click', async (t) => {
+  const { tree, api } = await mount(t, (data) => extraPlayers(data, 1));
+  await click(tree, 'Añadir a todos al banquillo');
+  const driver = pointerDriver();
+  const source = () => button(tree, 'Arrastrar a Jugador 2 a una posición');
+  await act(async () => { source().props.onPointerDown(driver.event(20, 500)); });
+  driver.destination('COL');
+  await act(async () => { source().props.onPointerMove(driver.event(100, 200)); });
+  await act(async () => {
+    source().props.onPointerCancel(driver.event(0, 0, { pointerId: 99 }));
+    source().props.onLostPointerCapture(driver.event(0, 0, { pointerId: 99 }));
+  });
+  const release = source().props.onPointerUp;
+  const trailingClick = source().props.onClick;
+  await act(async () => { release(driver.event(100, 200)); });
+  await act(async () => { trailingClick({ detail: 1, currentTarget: { matches: () => false } }); t.mock.timers.tick(801); });
+  assert.deepEqual(api.boards.get(12).sets[0].roster, [{ id: 31, slot: null }, { id: 32, slot: 'COL' }]);
+  assert.ok(tree.root.findAllByProps({ 'aria-label': 'Jugador 2 en COL, zona 1' }).length, 'The residual click must not select the player again');
+  await click(tree, 'Devolver a Jugador 2 al banquillo');
+  await click(tree, 'Colocar a Jugador 2');
+  await click(tree, 'Colocar a Jugador 2 en L2');
+  await click(tree, 'K2 · Saque y defensa');
+  assert.ok(tree.root.findAllByProps({ 'aria-label': 'Jugador 2 en L2, zona 6' }).length, 'K2 must resolve the second libero by role, not the visual zone');
+});
+
+test('cancelled, external and obsolete pointer gestures never alter the lineup', async (t) => {
+  const { tree, api } = await mount(t, (data) => extraPlayers(data, 1));
+  await click(tree, 'Añadir a todos al banquillo');
+  await act(async () => { t.mock.timers.tick(801); });
+  const original = structuredClone(api.boards.get(12).sets[0].roster);
+  const driver = pointerDriver();
+  const source = () => button(tree, 'Arrastrar a Jugador 2 a una posición');
+  for (const ending of ['outside', 'external', 'cancel', 'lostCapture', 'escape', 'shortEscape', 'phase']) {
+    await act(async () => { source().props.onPointerDown(driver.event(20, 500)); });
+    driver.destination('O', ending !== 'external');
+    if (ending !== 'shortEscape') await act(async () => { source().props.onPointerMove(driver.event(100, 200)); });
+    if (ending === 'outside') driver.outside();
+    if (ending === 'cancel') await act(async () => { source().props.onPointerCancel(driver.event(100, 200)); });
+    if (ending === 'lostCapture') await act(async () => { source().props.onLostPointerCapture(driver.event(100, 200)); });
+    if (ending === 'escape' || ending === 'shortEscape') await act(async () => {
+      const escape = new Event('keydown', { cancelable: true });
+      Object.defineProperty(escape, 'key', { value: 'Escape' });
+      window.dispatchEvent(escape);
+    });
+    if (ending === 'phase') await click(tree, 'K2 · Saque y defensa');
+    await act(async () => { source().props.onPointerUp(driver.event(100, 200)); });
+    await act(async () => { source().props.onClick({ detail: 1, currentTarget: { matches: () => false } }); t.mock.timers.tick(801); });
+    assert.deepEqual(api.boards.get(12).sets[0].roster, original, `A ${ending} drag must be a no-op`);
+    assert.equal(button(tree, 'Colocar a Jugador 2').props['aria-pressed'], false, `The ${ending} cancellation must survive the residual click`);
+  }
 });
 
 test('team rename, deletion and restoration retain its saved roster and sets', async (t) => {

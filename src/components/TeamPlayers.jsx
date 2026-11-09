@@ -60,7 +60,7 @@ export default function TeamPlayers({ team, busy, onSave, onRemove, onRestore, o
           {trash ? 'Ver jugadores activos' : 'Papelera de jugadores'}
         </button>
       </div>
-      <p className="wb-roster-count">{players.length} {trash ? 'jugadores en la papelera' : `jugadores · Hasta 8 por set`}</p>
+      <p className="wb-roster-count">{players.length} {trash ? 'jugadores en la papelera' : 'jugadores disponibles para tus sets'}</p>
       {trash && <p className="wb-muted">Puedes restaurar estos jugadores. Sus posiciones se conservan en los sets hasta que los quites de ellos.</p>}
       {filtered.length === 0 && <div className="wb-empty-state">{search ? 'No hay jugadores que coincidan con la búsqueda.' : trash ? 'La papelera está vacía.' : 'Añade tu primer jugador y asígnale sus posiciones.'}</div>}
       <div className="wb-player-cards">

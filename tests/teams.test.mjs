@@ -253,6 +253,64 @@ test('team boards store canonical player references and never trust spoofed play
   assert.equal(f.tables.volley_players[0].name, 'Sara');
 });
 
+test('team boards preserve a full bench beyond eight players alongside occupied positions', async () => {
+  const f = fixture();
+  const team = await f.createTeam();
+  const roster = [];
+  for (let i = 0; i < 12; i++) {
+    const player = await f.createPlayer(team.id, 'alice', { name: `Player ${i + 1}`, number: String(i + 1) });
+    roster.push({ id: player.id, slot: i === 0 ? 'COL' : i === 1 ? 'R1' : null });
+  }
+  const playersBefore = structuredClone(f.tables.volley_players);
+  const state = board(roster);
+  const path = `/api/teams/${team.id}/whiteboard`;
+  const saved = await f.invoke('alice', path, 'PUT', { state: JSON.stringify(state) });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(JSON.parse((await saved.json()).data.state), state);
+  const loaded = await f.invoke('alice', path);
+  assert.equal(loaded.status, 200);
+  assert.deepEqual(JSON.parse((await loaded.json()).data.state), state);
+  assert.deepEqual(f.tables.volley_players, playersBefore, 'lineup changes must not modify team profiles');
+});
+
+test('five sets can retain all 200 team players while excess references and duplicate slots are rejected', async () => {
+  const f = fixture();
+  const team = await f.createTeam();
+  const slots = ['COL', 'O', 'R1', 'R2', 'C1', 'C2', 'L1', 'L2'];
+  for (let id = 1; id <= 200; id++) f.tables.volley_players.push({
+    id, owner_key: owner('alice'), team_id: team.id, name: `Player ${id}`, number: String(id), deleted: 0,
+    rating_col: null, rating_o: null, rating_r: null, rating_c: null, rating_l: null
+  });
+  const state = {
+    sets: Array.from({ length: 5 }, (_, i) => ({
+      id: i + 1, name: `Set ${i + 1}`, rotation: 'R1', phase: 'receiving',
+      roster: Array.from({ length: 200 }, (_, j) => ({ id: j + 1, slot: slots[j] ?? null }))
+    })), activeId: 5
+  };
+  const path = `/api/teams/${team.id}/whiteboard`;
+  const payload = { state: JSON.stringify(state) };
+  assert.ok(Buffer.byteLength(JSON.stringify(payload), 'utf8') < 65536, 'the full roster fits the unchanged request limit');
+  const saved = await f.invoke('alice', path, 'PUT', payload);
+  assert.equal(saved.status, 200);
+  assert.deepEqual(JSON.parse((await saved.json()).data.state), state);
+  const loaded = await f.invoke('alice', path);
+  assert.equal(loaded.status, 200);
+  assert.deepEqual(JSON.parse((await loaded.json()).data.state), state);
+
+  const excess = structuredClone(state);
+  excess.sets[0].roster.push({ id: 201, slot: null });
+  const duplicateSlot = structuredClone(state);
+  duplicateSlot.sets[0].roster[8].slot = 'COL';
+  const storedBefore = f.tables.volley_teams[0].board_state;
+  for (const invalid of [excess, duplicateSlot]) {
+    const firstCall = f.calls.length;
+    assert.equal((await f.invoke('alice', path, 'PUT', { state: JSON.stringify(invalid) })).status, 400);
+    assert.equal(f.calls.slice(firstCall).some((call) => new URL(call.url).pathname.includes('volley_players')), false,
+      'invalid roster structure must be rejected before resolving player references');
+    assert.equal(f.tables.volley_teams[0].board_state, storedBefore);
+  }
+});
+
 test('deleted owned player references remain restorable on board read and write', async () => {
   const f = fixture();
   const team = await f.createTeam();
@@ -285,7 +343,7 @@ test('unknown players, other-team players and malformed lineups cannot enter a t
     { sets: [{ ...board().sets[0], phase: 'attack' }], activeId: 1 },
     { sets: [{ ...board().sets[0], id: -1 }], activeId: -1 },
     { sets: [board().sets[0], board().sets[0]], activeId: 1 },
-    board(Array.from({ length: 9 }, (_, i) => ({ id: i + 1, slot: null })))
+    board(Array.from({ length: 201 }, (_, i) => ({ id: i + 1, slot: null })))
   ];
   for (const state of invalid) assert.equal((await f.invoke('alice', `/api/teams/${team.id}/whiteboard`, 'PUT', { state: JSON.stringify(state) })).status, 400);
   assert.equal(f.tables.volley_teams[0].board_state, null);

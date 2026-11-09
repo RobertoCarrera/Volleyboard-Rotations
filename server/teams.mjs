@@ -124,7 +124,7 @@ function parseBoard(encoded) {
   const sets = saved.sets.map((set) => {
     if (!isObject(set) || !isId(set.id) || setIds.has(set.id) || typeof set.name !== 'string' || set.name.length > 100
       || !set.name.trim() || !ROTATIONS.has(set.rotation) || !['receiving', 'serving'].includes(set.phase)
-      || !Array.isArray(set.roster) || set.roster.length > 8) invalid();
+      || !Array.isArray(set.roster) || set.roster.length > MAX_PLAYERS) invalid();
     setIds.add(set.id);
     const rosterIds = new Set();
     const occupied = new Set();
@@ -320,8 +320,9 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch, now = Date.
       if (typeof encoded !== 'string' || Buffer.byteLength(encoded, 'utf8') > MAX_BODY_BYTES) throw new RequestError('La pizarra no es válida.');
       let state;
       try {
-        // Parse all structure before expanding IDs: at most five sets with eight
-        // players each, and only positive integer references become API paths.
+        // Parse all structure before expanding IDs: each set may contain the
+        // complete team roster, but only the eight unique slots may be occupied.
+        // Only positive integer references become API paths.
         const saved = parseBoard(encoded);
         const players = await readAll(PLAYER_TABLE, route.teamId);
         const knownIds = new Set(players.map((player) => Number(player.id)));

@@ -249,7 +249,7 @@ export async function loadWhiteboard(options = {}) {
       ))
     ))) throw new Error('Invalid whiteboard');
     if (isTeam && (new Set(state.sets.map((set) => set.id)).size !== state.sets.length
-      || !state.sets.every((set) => positiveId(set.id) && set.name.length <= 100 && set.roster.length <= 8
+      || !state.sets.every((set) => positiveId(set.id) && set.name.length <= 100 && set.roster.length <= 200
         && new Set(set.roster.map((player) => player.id)).size === set.roster.length
         && new Set(set.roster.filter((player) => player.slot !== null).map((player) => player.slot)).size
           === set.roster.filter((player) => player.slot !== null).length

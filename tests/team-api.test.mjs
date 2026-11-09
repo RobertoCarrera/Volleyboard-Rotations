@@ -90,6 +90,34 @@ test('team saves target the selected team and store roster references without du
   assert.equal((await api.saveWhiteboard(withSnapshots, { teamId: 12 })).status, 'success');
 });
 
+test('a full team can save and reload 200 called players while keeping only assigned slots occupied', async (t) => {
+  const fullBoard = { activeId: 1, sets: [{ ...board.sets[0], roster: Array.from({ length: 200 }, (_, index) => ({
+    id: index + 1, slot: ['COL', 'O', 'R1', 'R2', 'C1', 'C2', 'L1', 'L2'][index] || null
+  })) }] };
+  let stored;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, '/api/teams/12/whiteboard');
+    if (options.method === 'PUT') stored = JSON.parse(options.body).state;
+    return ok({ id: 12, name: 'Pizarra', state: stored });
+  });
+  assert.equal((await api.saveWhiteboard(fullBoard, { teamId: 12 })).status, 'success');
+  const restored = await api.loadWhiteboard({ teamId: 12 });
+  assert.equal(restored.status, 'success');
+  assert.deepEqual(restored.data, fullBoard);
+  assert.equal(restored.data.sets[0].roster.filter((entry) => entry.slot === null).length, 192);
+});
+
+test('a larger bench does not allow over-capacity boards or duplicate position assignments to hydrate', async (t) => {
+  const roster = Array.from({ length: 201 }, (_, index) => ({ id: index + 1, slot: null }));
+  let returned = { ...board, sets: [{ ...board.sets[0], roster }] };
+  t.mock.method(globalThis, 'fetch', async () => ok({ state: JSON.stringify(returned) }));
+  assert.equal((await api.loadWhiteboard({ teamId: 12 })).status, 'error');
+  returned = { ...board, sets: [{ ...board.sets[0], roster: roster.slice(0, 200) }] };
+  returned.sets[0].roster[0].slot = 'COL';
+  returned.sets[0].roster[1].slot = 'COL';
+  assert.equal((await api.loadWhiteboard({ teamId: 12 })).status, 'error');
+});
+
 test('invalid duplicate team roster references are not hydrated as a valid board', async (t) => {
   t.mock.method(globalThis, 'fetch', async () => ok({ state: JSON.stringify({ ...board,
     sets: [{ ...board.sets[0], roster: [{ id: 31, slot: 'COL' }, { id: 31, slot: 'O' }] }] }) }));
