@@ -143,19 +143,99 @@ function validId(value) {
   return (typeof value === 'string' && value.length > 0) || (typeof value === 'number' && Number.isFinite(value));
 }
 
+const positiveId = (value) => Number.isSafeInteger(value) && value > 0;
+const playerSlots = new Set(['COL', 'O', 'R1', 'R2', 'C1', 'C2', 'L1', 'L2']);
+const ratingPositions = ['COL', 'O', 'R', 'C', 'L'];
+
+function routeId(value) {
+  if (typeof value === 'string' && !/^[1-9]\d*$/.test(value)) return null;
+  if (!['number', 'string'].includes(typeof value)) return null;
+  return positiveId(Number(value)) ? String(Number(value)) : null;
+}
+
+function boardPath(teamId) {
+  if (teamId === undefined || teamId === null) return '/api/whiteboard';
+  const id = routeId(teamId);
+  return id ? `/api/teams/${id}/whiteboard` : null;
+}
+
+function validTeam(team) {
+  return team && positiveId(team.id) && typeof team.name === 'string'
+    && team.name.trim().length > 0 && team.name.length <= 100 && typeof team.deleted === 'boolean';
+}
+
+function validPlayer(player, teamId) {
+  return player && positiveId(player.id) && player.teamId === Number(teamId)
+    && typeof player.name === 'string' && player.name.trim().length > 0 && player.name.length <= 100
+    && typeof player.number === 'string' && player.number.length <= 20
+    && typeof player.deleted === 'boolean' && player.ratings && ratingPositions.every((position) => (
+      player.ratings[position] === null
+      || (Number.isInteger(player.ratings[position]) && player.ratings[position] >= 0 && player.ratings[position] <= 5)
+    ));
+}
+
+async function teamRequest(path, method, data, options = {}, validate) {
+  if (!path) return failure('El identificador no es válido.');
+  const response = await requestJson(path, {
+    method, signal: options.signal,
+    ...(data !== undefined ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) } : {})
+  });
+  if (response.status === 'success' && validate && !validate(response.data)) {
+    return failure('Los datos del equipo no se pueden leer. No se han sobrescrito tus datos.');
+  }
+  return response;
+}
+
+function teamPath(teamId, tail = '') {
+  const id = routeId(teamId);
+  return id ? `/api/teams/${id}${tail}` : null;
+}
+
+function playerPath(teamId, playerId) {
+  const id = routeId(playerId);
+  return id ? teamPath(teamId, `/players/${id}`) : null;
+}
+
+export const listTeams = (options = {}) => teamRequest('/api/teams', 'GET', undefined, options,
+  (teams) => Array.isArray(teams) && teams.every(validTeam)
+    && new Set(teams.map((team) => team.id)).size === teams.length);
+export const createTeam = (data, options = {}) => teamRequest('/api/teams', 'POST', data, options, validTeam);
+export const getTeam = (id, options = {}) => teamRequest(teamPath(id), 'GET', undefined, options,
+  (team) => validTeam(team) && team.id === Number(id) && Array.isArray(team.players)
+    && team.players.every((player) => validPlayer(player, id))
+    && new Set(team.players.map((player) => player.id)).size === team.players.length);
+export const updateTeam = (id, data, options = {}) => teamRequest(teamPath(id), 'PATCH', data, options, validTeam);
+export const deleteTeam = (id, options = {}) => teamRequest(teamPath(id), 'DELETE', undefined, options);
+export const createPlayer = (teamId, data, options = {}) => teamRequest(teamPath(teamId, '/players'), 'POST', data, options,
+  (player) => validPlayer(player, teamId));
+export const updatePlayer = (teamId, id, data, options = {}) => teamRequest(playerPath(teamId, id), 'PATCH', data, options,
+  (player) => validPlayer(player, teamId) && player.id === Number(id));
+export const deletePlayer = (teamId, id, options = {}) => teamRequest(playerPath(teamId, id), 'DELETE', undefined, options);
+
 export async function loadWhiteboard(options = {}) {
-  const response = await requestJson('/api/whiteboard', { method: 'GET', signal: options.signal });
+  const path = boardPath(options.teamId);
+  if (!path) return failure('El identificador del equipo no es válido.');
+  const isTeam = options.teamId !== undefined && options.teamId !== null;
+  const response = await requestJson(path, { method: 'GET', signal: options.signal });
   if (response.status !== 'success' || response.data === null) return response;
   try {
     const state = typeof response.data?.state === 'string' ? JSON.parse(response.data.state) : response.data?.state;
-    if (!Array.isArray(state?.sets) || !state.sets.length || !state.sets.every((set) => (
+    if (!Array.isArray(state?.sets) || !state.sets.length || state.sets.length > 5 || !state.sets.every((set) => (
       set && validId(set.id) && typeof set.name === 'string'
       && /^R[1-6]$/.test(set.rotation) && ['receiving', 'serving'].includes(set.phase)
       && Array.isArray(set.roster) && set.roster.every((player) => (
-        player && validId(player.id) && typeof player.name === 'string'
+        player && validId(player.id) && (isTeam || typeof player.name === 'string')
         && (player.slot == null || typeof player.slot === 'string')
       ))
     ))) throw new Error('Invalid whiteboard');
+    if (isTeam && (new Set(state.sets.map((set) => set.id)).size !== state.sets.length
+      || !state.sets.every((set) => positiveId(set.id) && set.name.length <= 100 && set.roster.length <= 8
+        && new Set(set.roster.map((player) => player.id)).size === set.roster.length
+        && new Set(set.roster.filter((player) => player.slot !== null).map((player) => player.slot)).size
+          === set.roster.filter((player) => player.slot !== null).length
+        && set.roster.every((player) => positiveId(player.id) && (player.slot === null || playerSlots.has(player.slot)))))) {
+      throw new Error('Invalid team board');
+    }
     const activeId = state.sets.some((set) => set.id === state.activeId) ? state.activeId : state.sets[0].id;
     return { status: 'success', data: { sets: state.sets, activeId } };
   } catch {
@@ -164,10 +244,16 @@ export async function loadWhiteboard(options = {}) {
 }
 
 export async function saveWhiteboard({ sets, activeId }, options = {}) {
-  return requestJson('/api/whiteboard', {
+  const path = boardPath(options.teamId);
+  if (!path) return failure('El identificador del equipo no es válido.');
+  const storedSets = options.teamId === undefined || options.teamId === null ? sets : sets.map((set) => ({
+    id: set.id, name: set.name, rotation: set.rotation, phase: set.phase,
+    roster: set.roster.map((player) => ({ id: player.id, slot: player.slot }))
+  }));
+  return requestJson(path, {
     method: 'PUT',
     signal: options.signal,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Pizarra', state: JSON.stringify({ sets, activeId }) })
+    body: JSON.stringify({ name: 'Pizarra', state: JSON.stringify({ sets: storedSets, activeId }) })
   });
 }

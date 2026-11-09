@@ -66,6 +66,7 @@ function backend(t, initialBoard = null) {
   let failRead = false;
   const writes = [];
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url === '/api/teams') return Response.json({ status: 'success', data: [] });
     if (url === '/api/auth/session') {
       return Response.json({
         user: { id: 'coach-123', name: 'Entrenadora', email: 'coach@example.test', image: null },

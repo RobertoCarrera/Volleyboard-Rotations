@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AUTH_STATE_EVENT, authFetch, endSession, loadWhiteboard, saveWhiteboard, startGoogleSignIn } from '../api';
 
-export default function useWhiteboardCloud({ sets, activeId, onLoad }) {
+export default function useWhiteboardCloud({ sets, activeId, onLoad, teamId }) {
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
   const [isReady, setIsReady] = useState(false);
@@ -26,6 +26,7 @@ export default function useWhiteboardCloud({ sets, activeId, onLoad }) {
   const timer = useRef(null);
   const loadController = useRef(null);
   const saveController = useRef(null);
+  const saveTask = useRef(null);
 
   const stopRequests = useCallback(() => {
     generation.current += 1;
@@ -36,38 +37,62 @@ export default function useWhiteboardCloud({ sets, activeId, onLoad }) {
     saveController.current?.abort();
     loadController.current = null;
     saveController.current = null;
+    saveTask.current = null;
   }, []);
 
   // Keep writes in order: a slower response must not let an older board
   // overwrite a newer one. Edits made during a save are sent afterwards.
-  const flushPending = useCallback(async () => {
-    if (!mounted.current || !loaded.current || paused.current || signingOut.current
-      || saveController.current || !pending.current) return;
-    const snapshot = pending.current;
-    pending.current = null;
-    if (snapshot === lastSaved.current) return;
-    const controller = new AbortController();
-    saveController.current = controller;
+  const flushPending = useCallback(() => {
+    if (saveTask.current) return saveTask.current;
+    if (!mounted.current || !loaded.current || paused.current || signingOut.current) return Promise.resolve(false);
     const currentGeneration = generation.current;
-    setStatus('Guardando…');
-    const response = await saveWhiteboard(JSON.parse(snapshot), { signal: controller.signal });
-    if (saveController.current === controller) saveController.current = null;
-    if (!mounted.current || controller.signal.aborted || generation.current !== currentGeneration) return;
-    if (response.status !== 'success') {
-      paused.current = true;
-      errorPhase.current = 'save';
-      setError(response.error || 'No se pudo guardar la pizarra. Tus cambios siguen en esta pantalla.');
-      setStatus('Cambios sin guardar');
-      return;
-    }
-    lastSaved.current = snapshot;
-    errorPhase.current = '';
-    setError('');
-    const newest = JSON.stringify(latest.current);
-    pending.current = newest !== snapshot ? newest : null;
-    setStatus(pending.current ? 'Guardando…' : 'Guardado');
-    if (pending.current) void flushPending();
-  }, []);
+    const task = (async () => {
+      while (pending.current) {
+        const snapshot = pending.current;
+        pending.current = null;
+        if (snapshot === lastSaved.current) continue;
+        const controller = new AbortController();
+        saveController.current = controller;
+        setStatus('Guardando…');
+        let response;
+        try {
+          response = await saveWhiteboard(JSON.parse(snapshot), { teamId, signal: controller.signal });
+        } catch {
+          response = { status: 'error', error: 'No se pudo guardar la pizarra. Tus cambios siguen en esta pantalla.' };
+        }
+        if (saveController.current === controller) saveController.current = null;
+        if (!mounted.current || controller.signal.aborted || generation.current !== currentGeneration) return false;
+        if (response.status !== 'success') {
+          paused.current = true;
+          errorPhase.current = 'save';
+          setError(response.error || 'No se pudo guardar la pizarra. Tus cambios siguen en esta pantalla.');
+          setStatus('Cambios sin guardar');
+          return false;
+        }
+        lastSaved.current = snapshot;
+        errorPhase.current = '';
+        setError('');
+        const newest = JSON.stringify(latest.current);
+        pending.current = newest !== snapshot ? newest : null;
+        setStatus(pending.current ? 'Guardando…' : 'Guardado');
+      }
+      return generation.current === currentGeneration && lastSaved.current === JSON.stringify(latest.current);
+    })();
+    saveTask.current = task;
+    void task.finally(() => { if (saveTask.current === task) saveTask.current = null; });
+    return task;
+  }, [teamId]);
+
+  // A workspace switch may unmount this board. It must wait for the current
+  // request and any newer edits, rather than cancelling the debounce silently.
+  const flush = useCallback(async () => {
+    if (!mounted.current || !loaded.current || paused.current || signingOut.current || restoring.current) return false;
+    clearTimeout(timer.current);
+    timer.current = null;
+    const snapshot = JSON.stringify(latest.current);
+    pending.current = snapshot !== lastSaved.current ? snapshot : null;
+    return flushPending();
+  }, [flushPending]);
 
   const retryLoad = useCallback(() => setAttempt((current) => current + 1), []);
 
@@ -77,6 +102,7 @@ export default function useWhiteboardCloud({ sets, activeId, onLoad }) {
     loaded.current = false;
     setIsReady(false);
     restoring.current = null;
+    lastSaved.current = null;
     paused.current = false;
     signingOut.current = false;
     errorPhase.current = '';
@@ -100,7 +126,7 @@ export default function useWhiteboardCloud({ sets, activeId, onLoad }) {
         return;
       }
       setUser(session.data.user);
-      const response = await loadWhiteboard({ signal: controller.signal });
+      const response = await loadWhiteboard({ teamId, signal: controller.signal });
       if (!isCurrent()) return;
       if (response.status !== 'success') {
         errorPhase.current = 'load';
@@ -156,7 +182,7 @@ export default function useWhiteboardCloud({ sets, activeId, onLoad }) {
       window.removeEventListener(AUTH_STATE_EVENT, handleAuthState);
       stopRequests();
     };
-  }, [attempt, retryLoad, stopRequests]);
+  }, [attempt, retryLoad, stopRequests, teamId]);
 
   useEffect(() => {
     if (!user || checking || !loaded.current || paused.current || signingOut.current) return undefined;
@@ -204,7 +230,7 @@ export default function useWhiteboardCloud({ sets, activeId, onLoad }) {
   }, []);
 
   return {
-    user, checking, isReady, status, error, retry, retryLoad,
+    user, checking, isReady, status, error, retry, retryLoad, flush,
     signInWithGoogle,
     signOut: endSession
   };

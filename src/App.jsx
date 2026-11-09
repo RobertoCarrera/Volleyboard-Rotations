@@ -200,7 +200,7 @@ function App() {
               <strong>◈ Simulador</strong><small>Aprende rotaciones y sistemas</small>
             </button>
             <button type="button" className={showWhiteboard ? 'active' : ''} aria-pressed={showWhiteboard} onClick={() => setShowWhiteboard(true)}>
-              <strong>▦ Pizarra</strong><small>Crea hasta 5 sets con tu equipo</small>
+              <strong>▦ Pizarra</strong><small>Equipos, jugadores y rotaciones</small>
             </button>
           </div>
         </div>

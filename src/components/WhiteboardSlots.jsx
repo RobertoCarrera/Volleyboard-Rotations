@@ -1,4 +1,6 @@
 import React from 'react';
+import { RatingBadge } from './PlayerRatings';
+import { ratingForSlot } from '../data/playerRatings';
 
 export default function WhiteboardSlots({system, roster, onAssign}) {
   return (
@@ -23,10 +25,12 @@ export default function WhiteboardSlots({system, roster, onAssign}) {
                   disabled={Boolean(player.slot) && player.slot !== slot.key}
                 >
                   #{player.number || '—'} {player.name}
+                  {player.ratings ? ` · ${ratingForSlot(player, slot.key) == null ? 'Sin asignar' : `${ratingForSlot(player, slot.key)}/5`}` : ''}
                   {player.slot && player.slot !== slot.key ? ` (${player.slot})` : ''}
                 </option>
               ))}
             </select>
+            {current?.ratings && <RatingBadge value={ratingForSlot(current, slot.key)} label={`${current.name} · ${slot.label}`} />}
           </label>
         );
       })}

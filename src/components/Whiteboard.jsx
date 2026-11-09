@@ -1,232 +1,244 @@
-import React,{useMemo,useRef,useState} from 'react';
-import * as FiIcons from 'react-icons/fi';
-import SafeIcon from '../common/SafeIcon';
-import WhiteboardCourt from './WhiteboardCourt';
-import WhiteboardRoster from './WhiteboardRoster';
-import WhiteboardSlots from './WhiteboardSlots';
-import useWhiteboardCloud from './useWhiteboardCloud';
-import {getNextRotation,getSystemRotation,ROTATION_SEQUENCE} from '../data/systemRotation';
-import {getSlotKey,MAX_ROSTER,WHITEBOARD_SYSTEMS} from '../data/whiteboardSlots';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPlayer, createTeam, deletePlayer, deleteTeam, getTeam, listTeams, updatePlayer, updateTeam } from '../api';
+import LegacyWhiteboard from './LegacyWhiteboard';
+import TeamWhiteboard from './TeamWhiteboard';
+import TeamPlayers from './TeamPlayers';
 import './Whiteboard.css';
 
-const {FiPlus, FiRotateCw, FiRotateCcw, FiTrash2} = FiIcons;
-const SELECTOR_ORDER = ['R1', 'R6', 'R5', 'R4', 'R3', 'R2'];
-const PHASES = {receiving: 'K1 · Recepción', serving: 'K2 · Saque y defensa'};
+export default function Whiteboard({ onClose }) {
+  const [teams, setTeams] = useState([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [teamData, setTeamData] = useState(null);
+  const [view, setView] = useState('board');
+  const [loading, setLoading] = useState(true);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [listError, setListError] = useState('');
+  const [teamError, setTeamError] = useState('');
+  const [listAttempt, setListAttempt] = useState(0);
+  const [teamAttempt, setTeamAttempt] = useState(0);
+  const [teamForm, setTeamForm] = useState(null);
+  const [playerEditing, setPlayerEditing] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
+  const [notice, setNotice] = useState('');
+  const flushRef = useRef(null);
+  const playerEditingRef = useRef(false);
+  const locked = useRef(false);
+  const mounted = useRef(true);
+  const currentTeam = teamData?.id === Number(selectedId) ? teamData : null;
+  const activeTeams = teams.filter((team) => !team.deleted);
+  const deletedTeams = teams.filter((team) => team.deleted);
 
-const makeSet = (id, source = null) => ({
-  id,
-  name: `Set ${id}`,
-  rotation: source?.rotation || 'R1',
-  phase: source?.phase || 'receiving',
-  roster: source ? source.roster.map((player) => ({...player})) : []
-});
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
-function PlayerChip({player}) {
-  return (
-    <span className="wb-chip">
-      <b>{player.number || '—'}</b> {player.name}
-      {player.slot && <em>{player.slot}</em>}
-    </span>
-  );
-}
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setListError('');
+    const load = async () => {
+      const response = await listTeams({ signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (response.status !== 'success') setListError(response.error || 'No se pudieron cargar tus equipos.');
+      else {
+        setTeams(response.data);
+        setSelectedId((current) => current || String(response.data.find((team) => !team.deleted)?.id || 'personal'));
+      }
+      setLoading(false);
+    };
+    void load();
+    return () => controller.abort();
+  }, [listAttempt]);
 
-export default function Whiteboard({onClose}) {
-  const [sets, setSets] = useState(() => [makeSet(1)]);
-  const [activeId, setActiveId] = useState(1);
-  const nextPlayerId = useRef(1);
-  const nextSetId = useRef(2);
-  const system = WHITEBOARD_SYSTEMS['5-1'];
-  const active = sets.find((set) => set.id === activeId) || sets[0];
+  useEffect(() => {
+    const controller = new AbortController();
+    setTeamData(null);
+    setTeamError('');
+    if (!selectedId || selectedId === 'personal') {
+      setTeamLoading(false);
+      return () => controller.abort();
+    }
+    setTeamLoading(true);
+    const load = async () => {
+      const response = await getTeam(Number(selectedId), { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (response.status !== 'success') setTeamError(response.error || 'No se pudo cargar la plantilla del equipo.');
+      else setTeamData(response.data);
+      setTeamLoading(false);
+    };
+    void load();
+    return () => controller.abort();
+  }, [selectedId, teamAttempt]);
 
-  const handleLoad = (saved) => {
-    const loadedSets = saved.sets;
-    const maxSet = Math.max(...loadedSets.map((set) => Number(set.id) || 0), 0);
-    const maxPlayer = Math.max(
-      ...loadedSets.flatMap((set) => (set.roster || []).map((player) => Number(player.id) || 0)),
-      0
-    );
-    nextSetId.current = maxSet + 1;
-    nextPlayerId.current = maxPlayer + 1;
-    setSets(loadedSets);
-    setActiveId(loadedSets.some((set) => set.id === saved.activeId) ? saved.activeId : loadedSets[0].id);
+  const registerFlush = useCallback((flush) => { flushRef.current = flush; }, []);
+  const updateEditing = useCallback((editing) => {
+    playerEditingRef.current = editing;
+    setPlayerEditing(editing);
+  }, []);
+
+  // Save the current board before changing its team or catalogue. A failed
+  // save leaves the component mounted, with its local edits and retry intact.
+  const perform = async (operation) => {
+    if (locked.current) return false;
+    locked.current = true;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      if (flushRef.current && !await flushRef.current()) {
+        if (mounted.current) setError('Hay cambios de la pizarra sin guardar. Reintenta el guardado antes de continuar.');
+        return false;
+      }
+      const result = await operation();
+      return result !== false;
+    } catch {
+      if (mounted.current) setError('No se pudo completar el cambio. Inténtalo de nuevo.');
+      return false;
+    } finally {
+      locked.current = false;
+      if (mounted.current) setBusy(false);
+    }
   };
-  const cloud = useWhiteboardCloud({sets, activeId, onLoad: handleLoad});
 
-  const patchActive = (patch) => setSets((current) => current.map((set) => (
-    set.id === active.id ? {...set, ...(typeof patch === 'function' ? patch(set) : patch)} : set
-  )));
-
-  const simPlayers = useMemo(
-    () => getSystemRotation(active.rotation, active.phase),
-    [active.rotation, active.phase]
-  );
-  const onCourtKeys = simPlayers.map((sim) => getSlotKey(sim, active.phase, active.roster));
-  const bench = active.roster.filter((player) => !player.slot);
-  const waiting = active.roster.filter((player) => player.slot && !onCourtKeys.includes(player.slot));
-
-  const addPlayer = (name, number) => {
-    const id = nextPlayerId.current++;
-    patchActive((set) => ({roster: [...set.roster, {id, name, number: number || String(id), slot: null}]}));
-  };
-  const updatePlayer = (id, changes) => patchActive((set) => ({
-    roster: set.roster.map((player) => (player.id === id ? {...player, ...changes} : player))
-  }));
-  const removePlayer = (id) => patchActive((set) => ({roster: set.roster.filter((player) => player.id !== id)}));
-  const assign = (slotKey, playerId) => patchActive((set) => ({
-    roster: set.roster.map((player) => {
-      if (String(player.id) === String(playerId)) return {...player, slot: slotKey};
-      return player.slot === slotKey ? {...player, slot: null} : player;
-    })
-  }));
-
-  const addSet = () => {
-    if (sets.length >= 5) return;
-    const id = nextSetId.current++;
-    setSets((current) => [...current, makeSet(id, active)]);
-    setActiveId(id);
-  };
-  const removeSet = () => {
-    if (sets.length === 1) return;
-    const remaining = sets.filter((set) => set.id !== active.id);
-    setSets(remaining);
-    setActiveId(remaining[0].id);
+  const accept = (response) => {
+    if (!mounted.current) return false;
+    if (response.status !== 'success') {
+      setError(response.error || 'No se pudo guardar el cambio.');
+      return false;
+    }
+    return true;
   };
 
+  const selectTeam = (id) => {
+    if (id === selectedId) return Promise.resolve(true);
+    return perform(async () => {
+      setSelectedId(id);
+      setView('board');
+      setConfirmation(null);
+      setTeamForm(null);
+      return true;
+    });
+  };
+
+  const openRoster = () => perform(async () => { setView('players'); return true; });
+
+  const saveTeam = async (event) => {
+    event.preventDefault();
+    if (playerEditingRef.current) {
+      setError('Guarda o cancela la edición del jugador antes de cambiar de equipo.');
+      return;
+    }
+    const name = teamForm?.name.trim();
+    if (!name) return;
+    await perform(async () => {
+      const response = teamForm.id ? await updateTeam(teamForm.id, { name }) : await createTeam({ name });
+      if (!accept(response)) return false;
+      const saved = response.data;
+      setTeams((current) => teamForm.id ? current.map((team) => team.id === saved.id ? { ...team, ...saved } : team) : [...current, saved]);
+      if (currentTeam?.id === saved.id) setTeamData((current) => ({ ...current, name: saved.name }));
+      setSelectedId(String(saved.id));
+      setTeamForm(null);
+      setNotice('Equipo guardado.');
+      return true;
+    });
+  };
+
+  const savePlayer = (playerId, data) => perform(async () => {
+    const response = playerId ? await updatePlayer(currentTeam.id, playerId, data) : await createPlayer(currentTeam.id, data);
+    if (!accept(response)) return false;
+    const saved = response.data;
+    setTeamData((current) => ({ ...current, players: playerId ? current.players.map((player) => player.id === saved.id ? saved : player) : [...current.players, saved] }));
+    setNotice('Jugador guardado. Sus datos se usan en todos los sets de este equipo.');
+    return true;
+  });
+
+  const restorePlayer = (player) => perform(async () => {
+    const response = await updatePlayer(currentTeam.id, player.id, { deleted: false });
+    if (!accept(response)) return false;
+    setTeamData((current) => ({ ...current, players: current.players.map((item) => item.id === player.id ? { ...item, ...response.data, deleted: false } : item) }));
+    setNotice(`${player.name} se ha restaurado.`);
+    return true;
+  });
+
+  const restoreTeam = (team) => perform(async () => {
+    const response = await updateTeam(team.id, { deleted: false });
+    if (!accept(response)) return false;
+    setTeams((current) => current.map((item) => item.id === team.id ? { ...item, ...response.data, deleted: false } : item));
+    setSelectedId(String(team.id));
+    setView('board');
+    setShowTrash(false);
+    setNotice(`${team.name} se ha restaurado.`);
+    return true;
+  });
+
+  const confirmDelete = () => perform(async () => {
+    if (!confirmation) return false;
+    const { kind, item } = confirmation;
+    const response = kind === 'team' ? await deleteTeam(item.id) : await deletePlayer(currentTeam.id, item.id);
+    if (!accept(response)) return false;
+    if (kind === 'team') {
+      setTeams((current) => current.map((team) => team.id === item.id ? { ...team, deleted: true } : team));
+      setSelectedId('personal');
+      setView('board');
+    } else {
+      setTeamData((current) => ({ ...current, players: current.players.map((player) => player.id === item.id ? { ...player, deleted: true } : player) }));
+    }
+    setConfirmation(null);
+    setNotice(`${item.name} se ha movido a la papelera.`);
+    return true;
+  });
+
+  const controlsDisabled = busy || loading || teamLoading || playerEditing || Boolean(confirmation);
   return (
     <section className="whiteboard">
       <div className="wb-header">
-        <div>
-          <span className="eyebrow">Tu equipo, a tu manera</span>
-          <h2>Pizarra</h2>
-          <p>Añade tu plantilla (hasta {MAX_ROSTER} por set), asigna cada jugador a una posición y mira cómo se coloca en K1 o K2 al rotar.</p>
-        </div>
-        <div className="wb-header-actions">
-          <button type="button" className="wb-secondary" onClick={onClose}>Volver al simulador</button>
-        </div>
+        <div><span className="eyebrow">Tu equipo, a tu manera</span><h2>Pizarra</h2><p>Guarda tus equipos, valora a tus jugadores y prepara hasta 5 sets por equipo.</p></div>
+        <button type="button" className="wb-secondary" onClick={onClose}>Volver al simulador</button>
       </div>
 
-      {cloud.checking && <p role="status">{cloud.status || 'Comprobando sesión…'}</p>}
-      {cloud.error && (
-        <div className="wb-temp" role="alert">
-          <p>{cloud.error}</p>
-          <button type="button" className="wb-secondary" onClick={cloud.retry} disabled={cloud.checking}>
-            Reintentar
-          </button>
-          {!cloud.user && (
-            <button type="button" className="wb-secondary" onClick={cloud.signInWithGoogle} disabled={cloud.checking}>
-              Iniciar sesión con Google
-            </button>
-          )}
-        </div>
-      )}
-
-      <fieldset
-        disabled={cloud.checking || !cloud.isReady}
-        aria-busy={cloud.checking}
-        aria-label="Editar pizarra"
-        style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
-      >
-      <div className="wb-set-bar">
-        <div className="wb-set-list">
-          {sets.map((set) => (
-            <button
-              type="button"
-              key={set.id}
-              className={set.id === active.id ? 'active' : ''}
-              onClick={() => setActiveId(set.id)}
-            >
-              {set.name}
-            </button>
-          ))}
-        </div>
-        <button type="button" className="wb-secondary" onClick={addSet} disabled={sets.length >= 5}>
-          <SafeIcon icon={FiPlus} /> Nuevo set ({sets.length}/5)
-        </button>
-      </div>
-
-      <div className="wb-layout">
-        <div className="wb-stage">
-          <div className="wb-controls">
-            <div className="wb-phase">
-              {Object.entries(PHASES).map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  className={active.phase === value ? 'active' : ''}
-                  onClick={() => patchActive({phase: value})}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="wb-rotation">
-              {SELECTOR_ORDER.map((rotation) => (
-                <button
-                  type="button"
-                  key={rotation}
-                  className={active.rotation === rotation ? 'active' : ''}
-                  onClick={() => patchActive({rotation})}
-                >
-                  {rotation}
-                </button>
-              ))}
-            </div>
-            <div className="wb-rotate">
-              <button type="button" onClick={() => patchActive({rotation: getNextRotation(active.rotation, 'backward')})}>
-                <SafeIcon icon={FiRotateCcw} /> Anterior
-              </button>
-              <button type="button" className="primary" onClick={() => patchActive({rotation: getNextRotation(active.rotation, 'forward')})}>
-                Rotar <SafeIcon icon={FiRotateCw} />
-              </button>
-            </div>
-          </div>
-
-          <WhiteboardCourt simPlayers={simPlayers} roster={active.roster} phase={active.phase} />
-
-          <div className="wb-zones-info">
-            <div>
-              <strong>En juego fuera de pista · {waiting.length}</strong>
-              <div className="wb-chips">
-                {waiting.length ? waiting.map((player) => <PlayerChip key={player.id} player={player} />) : <p>Nadie esperando.</p>}
-              </div>
-            </div>
-            <div>
-              <strong>Banquillo · {bench.length}</strong>
-              <div className="wb-chips">
-                {bench.length ? bench.map((player) => <PlayerChip key={player.id} player={player} />) : <p>Banquillo vacío.</p>}
-              </div>
-            </div>
+      {loading && <p role="status">Cargando tus equipos…</p>}
+      {listError && <div className="wb-error" role="alert"><p>{listError}</p><button type="button" className="wb-secondary" onClick={() => setListAttempt((value) => value + 1)}>Reintentar equipos</button></div>}
+      {!loading && !listError && <>
+        <div className="wb-team-toolbar">
+          <label className="wb-team-select">Equipo<select aria-label="Equipo de la pizarra" value={selectedId} disabled={controlsDisabled || Boolean(teamForm)} onChange={(event) => { void selectTeam(event.target.value); }}>
+            <option value="personal">Pizarra personal</option>
+            {activeTeams.map((team) => <option key={team.id} value={String(team.id)}>{team.name}</option>)}
+          </select></label>
+          <div className="wb-team-actions">
+            <button type="button" className="wb-primary" disabled={controlsDisabled || Boolean(teamForm) || teams.length >= 100} onClick={() => setTeamForm({ name: '' })}>Nuevo equipo</button>
+            {currentTeam && <><button type="button" className="wb-secondary" disabled={controlsDisabled || Boolean(teamForm)} onClick={() => setTeamForm({ id: currentTeam.id, name: currentTeam.name })}>Editar equipo</button><button type="button" className="wb-danger-text" disabled={controlsDisabled || Boolean(teamForm)} onClick={() => setConfirmation({ kind: 'team', item: currentTeam })}>Eliminar equipo</button></>}
+            <button type="button" className="wb-secondary" disabled={controlsDisabled || Boolean(teamForm)} aria-expanded={showTrash} onClick={() => setShowTrash(!showTrash)}>Papelera de equipos{deletedTeams.length ? ` (${deletedTeams.length})` : ''}</button>
           </div>
         </div>
 
-        <aside className="wb-side">
-          <div className="wb-card">
-            <span className="eyebrow">{active.name} · {system.label}</span>
-            <h3>Posiciones del set</h3>
-            <p>Elige quién ocupa cada posición. Los centrales y líberos que esperan se muestran fuera de pista.</p>
-            <WhiteboardSlots system={system} roster={active.roster} onAssign={assign} />
-          </div>
-          <div className="wb-card">
-            <WhiteboardRoster
-              roster={active.roster}
-              onAdd={addPlayer}
-              onUpdate={updatePlayer}
-              onRemove={removePlayer}
-            />
-          </div>
-          <button type="button" className="wb-delete" onClick={removeSet} disabled={sets.length === 1}>
-            <SafeIcon icon={FiTrash2} /> Eliminar este set
-          </button>
-          <div className="wb-temp" role="status" aria-live="polite">
-            {cloud.checking || cloud.error
-              ? cloud.status
-              : cloud.user
-              ? `Guardado automático en tu cuenta · ${cloud.status || 'Sincronizado'}`
-              : 'Sesión temporal · Inicia sesión para guardar tu pizarra.'}
-          </div>
-        </aside>
-      </div>
-      </fieldset>
+        {teamForm && <form className="wb-inline-editor" aria-label={teamForm.id ? 'Editar equipo' : 'Crear equipo'} onSubmit={saveTeam}>
+          <label>Nombre del equipo<input autoFocus required maxLength={100} type="text" aria-label="Nombre del equipo" value={teamForm.name} disabled={busy} onChange={(event) => setTeamForm({ ...teamForm, name: event.target.value })} /></label>
+          <div className="wb-form-actions"><button type="submit" className="wb-primary" disabled={busy || !teamForm.name.trim()}>{busy ? 'Guardando…' : teamForm.id ? 'Guardar equipo' : 'Crear equipo'}</button><button type="button" className="wb-secondary" disabled={busy} onClick={() => setTeamForm(null)}>Cancelar</button></div>
+        </form>}
+
+        {error && <div className="wb-error" role="alert"><p>{error}</p></div>}
+        {notice && <p className="wb-notice" role="status">{notice}</p>}
+        {confirmation && <div className="wb-confirmation" role="dialog" aria-modal="false" aria-labelledby="wb-confirm-title">
+          <h3 id="wb-confirm-title">Eliminar {confirmation.item.name}</h3>
+          <p>{confirmation.kind === 'team' ? 'El equipo dejará de aparecer entre tus equipos activos. Su plantilla y sus sets se conservarán y podrás recuperarlos desde la papelera.' : 'El jugador dejará de aparecer en la pista y entre los disponibles. Puedes restaurarlo desde la papelera; sus asignaciones se conservan hasta que lo quites de cada set.'}</p>
+          <div className="wb-form-actions"><button type="button" className="wb-delete" disabled={busy} onClick={confirmDelete}>Confirmar eliminación</button><button type="button" className="wb-secondary" disabled={busy} onClick={() => setConfirmation(null)}>Cancelar</button></div>
+        </div>}
+
+        {showTrash && <section className="wb-team-trash" aria-label="Equipos eliminados"><h3>Papelera de equipos</h3><p>Los equipos eliminados conservan sus jugadores y sus sets.</p>{deletedTeams.length ? deletedTeams.map((team) => <div className="wb-trash-row" key={team.id}><strong>{team.name}</strong><button type="button" className="wb-secondary" disabled={controlsDisabled} aria-label={`Restaurar equipo ${team.name}`} onClick={() => restoreTeam(team)}>Restaurar</button></div>) : <p>La papelera está vacía.</p>}</section>}
+
+        {teamLoading && <p role="status">Cargando plantilla del equipo…</p>}
+        {teamError && <div className="wb-error" role="alert"><p>{teamError}</p><button type="button" className="wb-secondary" onClick={() => setTeamAttempt((value) => value + 1)}>Reintentar plantilla</button></div>}
+        {selectedId === 'personal' && <><p className="wb-personal-note">Aquí se conservan tus sets anteriores. Crea un equipo para gestionar una plantilla y sus valoraciones.</p><LegacyWhiteboard onClose={onClose} onRegisterFlush={registerFlush} disabled={busy || loading || teamLoading || Boolean(confirmation) || Boolean(teamForm)} /></>}
+        {currentTeam && !teamLoading && <>
+          <div className="wb-view-tabs" aria-label="Vista del equipo"><button type="button" aria-pressed={view === 'board'} className={view === 'board' ? 'active' : ''} disabled={busy || playerEditing || Boolean(confirmation) || Boolean(teamForm)} onClick={() => setView('board')}>Pizarra</button><button type="button" aria-pressed={view === 'players'} className={view === 'players' ? 'active' : ''} disabled={busy || playerEditing || Boolean(confirmation) || Boolean(teamForm)} onClick={openRoster}>Plantilla</button></div>
+          <div hidden={view !== 'board'}><TeamWhiteboard key={currentTeam.id} team={currentTeam} onRegisterFlush={registerFlush} onManagePlayers={openRoster} disabled={busy || Boolean(confirmation) || Boolean(teamForm)} /></div>
+          {view === 'players' && <TeamPlayers key={currentTeam.id} team={currentTeam} busy={busy || Boolean(confirmation) || Boolean(teamForm)} onSave={savePlayer} onRemove={(player) => setConfirmation({ kind: 'player', item: player })} onRestore={restorePlayer} onEditingChange={updateEditing} />}
+        </>}
+      </>}
     </section>
   );
 }
