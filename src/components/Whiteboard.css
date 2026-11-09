@@ -369,3 +369,9 @@
   .wb-placement-hint { gap: 8px; padding: 10px; }
   .wb-lineup-slots { grid-template-columns: 1fr; }
 }
+@media (max-width: 620px) {
+  .wb-team-board .wb-token { width: 44px; height: 44px; --token-safe-x: clamp(26px, var(--token-x), calc(100% - 26px)); --token-safe-y: clamp(26px, calc(var(--token-y) + var(--token-mobile-shift, 0px)), calc(100% - 26px)); }
+  .wb-team-board .wb-token strong { font-size: 13px; }
+  .wb-team-board .wb-token[data-rotation-zone="1"], .wb-team-board .wb-token[data-rotation-zone="5"], .wb-team-board .wb-token[data-rotation-zone="6"] { --token-mobile-shift: 12px; }
+  .wb-team-board .wb-token[data-rotation-zone="2"], .wb-team-board .wb-token[data-rotation-zone="3"], .wb-team-board .wb-token[data-rotation-zone="4"] { --token-mobile-shift: -12px; }
+}

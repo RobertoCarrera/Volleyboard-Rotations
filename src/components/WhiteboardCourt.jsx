@@ -16,8 +16,9 @@ export default function WhiteboardCourt({simPlayers, roster, phase, interaction,
             type={interaction ? 'button' : undefined}
             disabled={interaction ? disabled : undefined}
             className={`wb-token ${person ? '' : 'empty'} ${interaction?.selectedPlayer ? 'is-destination' : ''} ${interaction?.overSlot === key ? 'is-drop-over' : ''}`}
-            style={{left: `${sim.x}%`, top: `${sim.y}%`, '--token-color': sim.color}}
+            style={{left: `var(--token-safe-x, ${sim.x}%)`, top: `var(--token-safe-y, ${sim.y}%)`, '--token-x': `${sim.x}%`, '--token-y': `${sim.y}%`, '--token-color': sim.color}}
             data-lineup-slot={interaction ? key : undefined}
+            data-rotation-zone={interaction ? sim.rotationZone : undefined}
             aria-label={interaction?.selectedPlayer ? `Colocar a ${interaction.selectedPlayer.name} en ${key}, zona ${sim.rotationZone}` : `${person?.name || 'Sin asignar'} en ${key}, zona ${sim.rotationZone}`}
             onClick={interaction ? (event) => interaction.chooseSlot(key, undefined, event.currentTarget) : undefined}
           >
