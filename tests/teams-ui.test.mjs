@@ -146,6 +146,57 @@ test('creates a persistent team and player, retaining a real zero rating separat
   assert.ok(tree.root.findAllByProps({ 'data-score': 5 }).length > 0);
 });
 
+test('an unassigned slider accepts zero on the first click and can be cleared without altering other positions', async (t) => {
+  const { tree, api } = await mount(t);
+  await click(tree, 'Plantilla');
+  await click(tree, 'Editar a Ana');
+  const nativeZero = { value: '0', matches: () => false };
+  await act(async () => {
+    tree.root.findByProps({ 'aria-label': 'Valoración en Opuesto' }).props.onPointerUp({ button: 2, currentTarget: nativeZero });
+  });
+  assert.equal(tree.root.findByProps({ 'aria-label': 'Valoración en Opuesto' }).props['aria-valuetext'], 'Sin asignar',
+    'Opening the context menu must not assign a rating');
+  await act(async () => {
+    // The native range already has DOM value 0, so there is no change event.
+    tree.root.findByProps({ 'aria-label': 'Valoración en Opuesto' }).props.onPointerUp({ button: 0, currentTarget: nativeZero });
+  });
+  await submit(tree, 'Guardar jugador');
+  assert.equal(api.players[0].ratings.O, 0);
+  assert.equal(api.players[0].ratings.COL, 5);
+  await click(tree, 'Editar a Ana');
+  await act(async () => {
+    button(tree, 'Quitar valoración de Opuesto').props.onClick({ currentTarget: { matches: () => false } });
+  });
+  await submit(tree, 'Guardar jugador');
+  assert.equal(api.players[0].ratings.O, null);
+  assert.equal(api.players[0].ratings.R, 0, 'Clearing a position must preserve a zero in another position');
+});
+
+test('slider keyboard and direct score choices keep null explicit and ignore disabled interactions', async (t) => {
+  const { tree, api } = await mount(t);
+  await click(tree, 'Plantilla');
+  await click(tree, 'Editar a Ana');
+  const range = () => tree.root.findByProps({ 'aria-label': 'Valoración en Opuesto' });
+  await act(async () => {
+    range().props.onKeyUp({ key: 'Tab', currentTarget: { value: '0', matches: () => false } });
+  });
+  assert.equal(range().props['aria-valuetext'], 'Sin asignar', 'Focusing the range must not assign zero');
+  await act(async () => {
+    range().props.onKeyUp({ key: 'Home', currentTarget: { value: '0', matches: () => false } });
+  });
+  assert.equal(range().props['aria-valuetext'], '0 de 5');
+  await act(async () => {
+    button(tree, '4 de 5 en Opuesto').props.onClick({ currentTarget: { matches: () => false } });
+  });
+  await act(async () => {
+    range().props.onPointerUp({ button: 0, currentTarget: { value: '5', matches: () => true } });
+    range().props.onKeyUp({ key: 'End', currentTarget: { value: '5', matches: () => true } });
+  });
+  await submit(tree, 'Guardar jugador');
+  assert.equal(api.players[0].ratings.O, 4);
+  assert.equal(api.players[0].ratings.L, null);
+});
+
 test('player edits resolve across sets, removing a set member is distinct from reversible catalogue deletion', async (t) => {
   const { tree, api } = await mount(t);
   await click(tree, 'Nuevo set (1/5)');
