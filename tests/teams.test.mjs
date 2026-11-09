@@ -16,12 +16,16 @@ const request = (user, path = '/api/teams', method = 'GET', payload, headers = {
 
 function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = false, repeatPage = false,
   cacheReads = false, staleAfterUpdate = false, staleDeletedTable = null, numericStrings = false,
-  collectionCache = false, recordOverride = null } = {}) {
+  collectionCache = false, recordOverride = null, confirmationReadMs = 0, confirmationResponse = null } = {}) {
   const tables = { volley_teams: [], volley_players: [] };
   const calls = [];
   const cached = new Map();
   let oldRow = null;
+  let staleReads = 0;
+  const clock = { value: 0, waits: [] };
   const handle = createTeamsHandler({
+    now: () => clock.value,
+    wait: async (ms) => { clock.waits.push(ms); clock.value += ms; },
     readSession: async (req) => {
       const id = req.headers.get('cookie')?.match(/^test-user=(.+)$/)?.[1];
       return id ? { user: { id } } : null;
@@ -55,9 +59,19 @@ function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = fa
         const page = repeatPage ? 1 : Number(url.searchParams.get('page') ?? 1);
         const limit = Number(url.searchParams.get('limit') ?? 50);
         selected = structuredClone(selected.slice((page - 1) * limit, page * limit));
-        if (staleAfterUpdate && oldRow?.table === table && (rowId ?? url.searchParams.get('id')) === String(oldRow.row.id)) {
-          selected = selected.map((row) => row.id === oldRow.row.id ? oldRow.row : row);
-          oldRow = null;
+        const confirming = oldRow?.table === table && (rowId ?? url.searchParams.get('id')) === String(oldRow.row.id);
+        if (confirming) {
+          clock.value += confirmationReadMs;
+          if (confirmationResponse === 'missing') return Response.json({ status: 'error', message: 'Record Not Found' }, { status: 404 });
+          if (confirmationResponse === 'error') return Response.json({ status: 'error', message: 'private upstream diagnostics' }, { status: 500 });
+          if (confirmationResponse === 'timeout-body') return { status: 200, ok: true, json: async () => {
+            clock.value += 8000;
+            throw new DOMException('Timed out while reading the response', 'TimeoutError');
+          } };
+          if (staleReads > 0) {
+            selected = selected.map((row) => row.id === oldRow.row.id ? oldRow.row : row);
+            staleReads -= 1;
+          }
         }
         if (staleDeletedTable === table) selected = selected.map((row) => ({ ...row, deleted: 1 }));
         if (numericStrings) selected = selected.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'number' ? String(value) : value])));
@@ -67,6 +81,9 @@ function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = fa
         if (rowId && recordOverride === 'team' && table === 'volley_players') record = { ...record, team_id: Number(record.team_id) + 1 };
         if (rowId && recordOverride === 'id') record = { ...record, id: Number(record.id) + 1 };
         if (rowId && recordOverride === 'shape') record = [];
+        if (confirming && confirmationResponse === 'foreign') record = { ...record, owner_key: owner('foreign') };
+        if (confirming && confirmationResponse === 'malformed') record = [];
+        if (confirming && confirmationResponse === 'invalid-fields') record = { ...record, deleted: 'corrupt' };
         const result = { status: 'success', data: rowId ? record : selected };
         if (reuseCache) cached.set(url.href, structuredClone(result));
         return Response.json(result);
@@ -86,7 +103,8 @@ function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = fa
       assert.ok(row, 'only existing, previously authorized records may be updated');
       assert.equal(payload.owner_key, undefined);
       assert.equal(payload.team_id, undefined);
-      if (staleAfterUpdate) oldRow = { table, row: structuredClone(row) };
+      oldRow = { table, row: structuredClone(row) };
+      staleReads = staleAfterUpdate === true ? Infinity : Number(staleAfterUpdate);
       Object.assign(row, payload, { updated_at: '2026-11-09 00:01:00' });
       return Response.json({ status: 'success', message: 'Record updated successfully' });
     }
@@ -102,7 +120,7 @@ function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = fa
     assert.equal(res.status, 201);
     return (await res.json()).data;
   };
-  return { handle, invoke, tables, calls, createTeam, createPlayer };
+  return { handle, invoke, tables, calls, createTeam, createPlayer, clock };
 }
 
 test('anonymous callers cannot read or mutate team data', async () => {
@@ -531,4 +549,52 @@ test('missing-reference lookup is deduplicated and malformed board IDs never bec
     assert.equal((await f.invoke('alice', `/api/teams/${team.id}/whiteboard`, 'PUT', { state: JSON.stringify(board([{ id, slot: 'COL' }])) })).status, 400);
     assert.equal(f.calls.slice(start).some((call) => new URL(call.url).pathname.startsWith('/read/volley_players/')), false);
   }
+});
+
+test('bounded confirmation observes an eventually fresh row without repeating the mutation', async () => {
+  const f = fixture({ staleAfterUpdate: 6 });
+  const team = await f.createTeam('alice', 'Before');
+  const start = f.calls.length;
+  const response = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { name: 'After' });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).data.name, 'After');
+  assert.deepEqual(f.clock.waits, [100, 250, 500, 1000, 2000, 2000]);
+  assert.equal(f.calls.slice(start).filter((call) => call.method === 'PUT').length, 1);
+  assert.ok(f.clock.value < 8000);
+});
+
+test('permanently stale confirmation stops after eight reads and a single mutation', async () => {
+  const f = fixture({ staleAfterUpdate: true });
+  const team = await f.createTeam('alice', 'Before');
+  const start = f.calls.length;
+  const response = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { name: 'After' });
+  assert.equal(response.status, 409);
+  assert.deepEqual(f.clock.waits, [100, 250, 500, 1000, 2000, 2000, 2000]);
+  const calls = f.calls.slice(start);
+  assert.equal(calls.filter((call) => call.method === 'PUT').length, 1);
+  assert.equal(calls.filter((call) => call.method === 'GET').length, 9, 'one authorization read plus eight confirmation reads');
+  assert.ok(f.clock.value <= 8000);
+});
+
+test('missing foreign malformed or failed confirmation responses never trigger polling', async () => {
+  for (const [confirmationResponse, expected] of [['missing', 409], ['foreign', 409], ['malformed', 502], ['invalid-fields', 502], ['error', 502], ['timeout-body', 409]]) {
+    const f = fixture({ confirmationResponse, staleAfterUpdate: confirmationResponse === 'invalid-fields' });
+    const team = await f.createTeam('alice', 'Before');
+    const response = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { name: 'After' });
+    assert.equal(response.status, expected, confirmationResponse);
+    assert.deepEqual(f.clock.waits, []);
+    assert.equal((await response.text()).includes('private upstream'), false);
+  }
+});
+
+test('confirmation reads use the remaining overall budget and never confirm after its deadline', async (t) => {
+  const budgets = [];
+  t.mock.method(AbortSignal, 'timeout', (ms) => { budgets.push(ms); return new AbortController().signal; });
+  const f = fixture({ staleAfterUpdate: 2, confirmationReadMs: 3500 });
+  const team = await f.createTeam('alice', 'Before');
+  budgets.length = 0;
+  const response = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { name: 'After' });
+  assert.equal(response.status, 409, 'the third response is fresh but arrives after the8 s budget');
+  assert.deepEqual(budgets, [12000, 12000, 8000, 4400, 650]);
+  assert.deepEqual(f.clock.waits, [100, 250]);
 });

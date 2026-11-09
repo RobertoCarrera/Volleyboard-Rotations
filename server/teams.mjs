@@ -25,6 +25,7 @@ const isObject = (value) => value !== null && typeof value === 'object' && !Arra
 class RequestError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
+const confirmationError = () => new RequestError('No se ha podido confirmar el cambio. Recarga los datos antes de volver a intentarlo.', 409);
 
 function canonicalOrigin(env) {
   const value = new URL(env.AUTH_ORIGIN);
@@ -154,7 +155,8 @@ async function readPayload(request) {
 
 // The caller selects IDs, never owners or backend tables. Every row is checked
 // again after the upstream filter so a storage-filter failure cannot leak data.
-export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
+export function createTeamsHandler({ readSession, fetchImpl = fetch, now = Date.now,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   return async (request, env) => {
     let origin;
     try { origin = canonicalOrigin(env); } catch { return failure('El servicio de equipos no está configurado.', 503); }
@@ -177,20 +179,30 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
       if (!session?.user?.id) return failure('Inicia sesión de nuevo para acceder a tus equipos.', 401);
       const ownerKey = createHash('sha256').update(`google:${session.user.id}`).digest('hex');
       const payload = ['POST', 'PATCH', 'PUT'].includes(request.method) ? await readPayload(request) : null;
-      const upstream = async (path, { method = 'GET', body, filters = {}, allowNotFound = false } = {}) => {
+      const upstream = async (path, { method = 'GET', body, filters = {}, allowNotFound = false, deadline } = {}) => {
         const endpoint = new URL(path, env.NCB_DATA_API_URL);
         endpoint.searchParams.set('Instance', env.NCB_INSTANCE);
         for (const [key, value] of Object.entries(filters)) endpoint.searchParams.set(key, String(value));
-        const response = await fetchImpl(endpoint, {
-          method, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(12000),
+        const timeout = deadline === undefined ? 12000 : Math.min(12000, Math.ceil(deadline - now()));
+        if (timeout <= 0) throw confirmationError();
+        let response;
+        try { response = await fetchImpl(endpoint, {
+          method, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(timeout),
           headers: {
             authorization: `Bearer ${env.NCB_SECRET_KEY}`, accept: 'application/json',
             'cache-control': 'no-cache, no-store', pragma: 'no-cache',
             ...(body ? { 'content-type': 'application/json' } : {})
           },
           ...(body ? { body: JSON.stringify(body) } : {})
-        });
-        const data = await response.json();
+        }); } catch (error) {
+          if (deadline !== undefined && (now() >= deadline || error?.name === 'TimeoutError')) throw confirmationError();
+          throw error;
+        }
+        let data;
+        try { data = await response.json(); } catch (error) {
+          if (deadline !== undefined && (now() >= deadline || error?.name === 'TimeoutError')) throw confirmationError();
+          throw error;
+        }
         if (allowNotFound && response.status === 404 && isObject(data)) return null;
         if (!response.ok || data.status !== 'success') throw new Error('Storage request failed');
         return data;
@@ -201,10 +213,10 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
           throw new Error('Storage ownership check failed');
         }
       };
-      const readOne = async (table, id, teamId) => {
+      const readOne = async (table, id, teamId, deadline) => {
         // The documented primary-key route returns one object. Authorize that
         // object before exposing it; collection filters are not a substitute.
-        const result = await upstream(`/read/${table}/${id}`, { allowNotFound: true });
+        const result = await upstream(`/read/${table}/${id}`, { allowNotFound: true, deadline });
         if (result === null) return null;
         const row = result.data;
         if (!isObject(row) || !isId(Number(row.id)) || Number(row.id) !== id
@@ -231,19 +243,31 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
       };
       const update = async (table, row, changes) => {
         await upstream(`/update/${table}/${Number(row.id)}`, { method: 'PUT', body: changes });
-        const updated = await readOne(table, Number(row.id), table === PLAYER_TABLE ? Number(row.team_id) : undefined);
-        const confirmed = updated && Object.entries(changes).every(([key, expected]) => {
-          const actual = updated[key];
-          if (typeof expected === 'number') {
-            return (typeof actual === 'number' || (typeof actual === 'string' && actual.trim() !== ''))
-              && Number(actual) === expected;
-          }
-          return actual === expected;
-        });
-        // A provider may acknowledge a write before a later read reflects it.
-        // Never report the old row as successfully saved, or coerce null to 0.
-        if (!confirmed) throw new RequestError('No se ha podido confirmar el cambio. Recarga los datos antes de volver a intentarlo.', 409);
-        return updated;
+        const deadline = now() + 8000;
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const updated = await readOne(table, Number(row.id), table === PLAYER_TABLE ? Number(row.team_id) : undefined, deadline);
+          if (now() >= deadline || !updated) throw confirmationError();
+          // Only valid, owned stale rows qualify for another read. Corruption,
+          // missing rows and authorization changes stop confirmation immediately.
+          if (table === TEAM_TABLE) publicTeam(updated);
+          else publicPlayer(updated);
+          if (Object.hasOwn(changes, 'board_state') && updated.board_state !== null && typeof updated.board_state !== 'string') throw new Error('Invalid stored board');
+          const confirmed = Object.entries(changes).every(([key, expected]) => {
+            const actual = updated[key];
+            if (typeof expected === 'number') {
+              return (typeof actual === 'number' || (typeof actual === 'string' && actual.trim() !== ''))
+                && Number(actual) === expected;
+            }
+            return actual === expected;
+          });
+          if (confirmed) return updated;
+          if (attempt === 7) break;
+          const remaining = deadline - now();
+          const delay = Math.min([100, 250, 500, 1000, 2000][Math.min(attempt, 4)], remaining - 100);
+          if (delay <= 0) break; // Reserve time for a useful final read.
+          await wait(delay);
+        }
+        throw confirmationError();
       };
       const create = async (table, changes, teamId) => {
         const result = await upstream(`/create/${table}`, { method: 'POST', body: { ...changes, owner_key: ownerKey, ...(teamId !== undefined ? { team_id: teamId } : {}) } });
