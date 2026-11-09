@@ -15,7 +15,8 @@ const request = (user, path = '/api/teams', method = 'GET', payload, headers = {
 });
 
 function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = false, repeatPage = false,
-  cacheReads = false, staleAfterUpdate = false, staleDeletedTable = null, numericStrings = false } = {}) {
+  cacheReads = false, staleAfterUpdate = false, staleDeletedTable = null, numericStrings = false,
+  collectionCache = false, recordOverride = null } = {}) {
   const tables = { volley_teams: [], volley_players: [] };
   const calls = [];
   const cached = new Map();
@@ -41,24 +42,33 @@ function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = fa
       const rows = tables[table];
       if (operation === 'read') {
         assert.equal(options.method ?? 'GET', 'GET');
-        assert.match(url.searchParams.get('owner_key'), /^[a-f0-9]{64}$/);
+        if (!rowId) assert.match(url.searchParams.get('owner_key'), /^[a-f0-9]{64}$/);
         const bypass = requestHeaders.get('cache-control')?.split(',').map((value) => value.trim()).includes('no-cache');
-        if (cacheReads && !bypass && cached.has(url.href)) return Response.json(cached.get(url.href));
-        let selected = rows.filter((row) => ignoreOwner || row.owner_key === url.searchParams.get('owner_key'));
-        if (url.searchParams.has('team_id')) selected = selected.filter((row) => ignoreTeam || row.team_id === Number(url.searchParams.get('team_id')));
-        if (url.searchParams.has('id')) selected = selected.filter((row) => row.id === Number(url.searchParams.get('id')));
+        const reuseCache = (cacheReads && !bypass) || (collectionCache && !rowId);
+        if (reuseCache && cached.has(url.href)) return Response.json(cached.get(url.href));
+        let selected = rowId
+          ? rows.filter((row) => row.id === Number(rowId))
+          : rows.filter((row) => ignoreOwner || row.owner_key === url.searchParams.get('owner_key'));
+        if (!rowId && url.searchParams.has('team_id')) selected = selected.filter((row) => ignoreTeam || row.team_id === Number(url.searchParams.get('team_id')));
+        if (!rowId && url.searchParams.has('id')) selected = selected.filter((row) => row.id === Number(url.searchParams.get('id')));
         selected.sort((a, b) => a.id - b.id);
         const page = repeatPage ? 1 : Number(url.searchParams.get('page') ?? 1);
         const limit = Number(url.searchParams.get('limit') ?? 50);
         selected = structuredClone(selected.slice((page - 1) * limit, page * limit));
-        if (staleAfterUpdate && oldRow?.table === table && url.searchParams.get('id') === String(oldRow.row.id)) {
+        if (staleAfterUpdate && oldRow?.table === table && (rowId ?? url.searchParams.get('id')) === String(oldRow.row.id)) {
           selected = selected.map((row) => row.id === oldRow.row.id ? oldRow.row : row);
           oldRow = null;
         }
         if (staleDeletedTable === table) selected = selected.map((row) => ({ ...row, deleted: 1 }));
         if (numericStrings) selected = selected.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'number' ? String(value) : value])));
-        const result = { status: 'success', data: selected };
-        if (cacheReads && !bypass) cached.set(url.href, structuredClone(result));
+        if (rowId && !selected.length) return Response.json({ status: 'error', message: 'Record Not Found' }, { status: 404 });
+        let record = selected[0];
+        if (rowId && recordOverride === 'owner') record = { ...record, owner_key: owner('other-account') };
+        if (rowId && recordOverride === 'team' && table === 'volley_players') record = { ...record, team_id: Number(record.team_id) + 1 };
+        if (rowId && recordOverride === 'id') record = { ...record, id: Number(record.id) + 1 };
+        if (rowId && recordOverride === 'shape') record = [];
+        const result = { status: 'success', data: rowId ? record : selected };
+        if (reuseCache) cached.set(url.href, structuredClone(result));
         return Response.json(result);
       }
       const payload = JSON.parse(options.body);
@@ -426,4 +436,99 @@ test('DELETE still writes the requested state when a stale row says it is alread
   assert.equal(players.tables.volley_players[0].deleted, 0);
   assert.equal((await players.invoke('alice', `/api/teams/${activeTeam.id}/players/${player.id}`, 'DELETE')).status, 200);
   assert.equal(players.tables.volley_players[0].deleted, 1);
+});
+
+test('single-record confirmation remains fresh when collection queries are cached despite no-cache', async () => {
+  const f = fixture({ collectionCache: true });
+  const team = await f.createTeam('alice', 'Before');
+  await f.invoke('alice', `/api/teams/${team.id}`);
+  const renamed = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { name: 'After' });
+  assert.equal(renamed.status, 200);
+  assert.equal((await renamed.json()).data.name, 'After');
+  assert.equal((await f.invoke('alice', `/api/teams/${team.id}`, 'DELETE')).status, 200);
+  const restored = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { deleted: false });
+  assert.equal(restored.status, 200);
+  assert.equal((await restored.json()).data.deleted, false);
+  const loaded = await f.invoke('alice', `/api/teams/${team.id}`);
+  assert.equal(loaded.status, 200);
+  assert.equal((await loaded.json()).data.name, 'After');
+});
+
+test('single-record responses belonging to another owner are unavailable without exposing data', async () => {
+  const f = fixture({ recordOverride: 'owner' });
+  f.tables.volley_teams.push({ id: 1, owner_key: owner('alice'), name: 'Private name', deleted: 0, board_state: null });
+  const response = await f.invoke('alice', '/api/teams/1');
+  assert.equal(response.status, 404);
+  assert.equal((await response.text()).includes('Private name'), false);
+});
+
+test('a single-record player returned for the wrong team cannot be edited', async () => {
+  const f = fixture({ recordOverride: 'team' });
+  f.tables.volley_teams.push({ id: 1, owner_key: owner('alice'), name: 'Team', deleted: 0, board_state: null });
+  f.tables.volley_players.push({ id: 1, owner_key: owner('alice'), team_id: 1, name: 'Original', number: '', deleted: 0,
+    rating_col: null, rating_o: null, rating_r: null, rating_c: null, rating_l: null });
+  const response = await f.invoke('alice', '/api/teams/1/players/1', 'PATCH', { name: 'Changed' });
+  assert.equal(response.status, 404);
+  assert.equal(f.tables.volley_players[0].name, 'Original');
+});
+
+test('single-record missing IDs are not found and malformed or mismatched responses fail closed', async () => {
+  const missing = fixture();
+  assert.equal((await missing.invoke('alice', '/api/teams/999')).status, 404);
+  for (const recordOverride of ['shape', 'id']) {
+    const f = fixture({ recordOverride });
+    f.tables.volley_teams.push({ id: 1, owner_key: owner('alice'), name: 'Private name', deleted: 0, board_state: null });
+    const response = await f.invoke('alice', '/api/teams/1');
+    assert.equal(response.status, 502);
+    assert.equal((await response.text()).includes('Private name'), false);
+  }
+});
+
+test('a fresh primary-key player can enter a board even when the roster collection remains stale', async () => {
+  const f = fixture({ collectionCache: true });
+  const team = await f.createTeam();
+  await f.invoke('alice', `/api/teams/${team.id}`);
+  const player = await f.createPlayer(team.id);
+  const saved = await f.invoke('alice', `/api/teams/${team.id}/whiteboard`, 'PUT', {
+    state: JSON.stringify(board([{ id: player.id, slot: 'COL' }]))
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(JSON.parse((await saved.json()).data.state), board([{ id: player.id, slot: 'COL' }]));
+});
+
+test('missing-reference fallback cannot admit another account or another team player', async () => {
+  const f = fixture({ collectionCache: true });
+  const team = await f.createTeam();
+  await f.invoke('alice', `/api/teams/${team.id}`);
+  f.tables.volley_players.push(
+    { id: 1, owner_key: owner('alice'), team_id: 2, name: 'Other team' },
+    { id: 2, owner_key: owner('bob'), team_id: team.id, name: 'Other account' }
+  );
+  for (const id of [1, 2, 999]) {
+    const response = await f.invoke('alice', `/api/teams/${team.id}/whiteboard`, 'PUT', { state: JSON.stringify(board([{ id, slot: 'COL' }])) });
+    assert.equal(response.status, 400);
+    const text = await response.text();
+    assert.equal(text.includes('Other team'), false);
+    assert.equal(text.includes('Other account'), false);
+  }
+  assert.equal(f.tables.volley_teams[0].board_state, null);
+});
+
+test('missing-reference lookup is deduplicated and malformed board IDs never become upstream paths', async () => {
+  const f = fixture({ collectionCache: true });
+  const team = await f.createTeam();
+  await f.invoke('alice', `/api/teams/${team.id}`);
+  const player = await f.createPlayer(team.id);
+  const shared = {
+    sets: Array.from({ length: 5 }, (_, i) => ({ id: i + 1, name: `Set ${i + 1}`, rotation: 'R1', phase: 'receiving', roster: [{ id: player.id, slot: 'COL' }] })),
+    activeId: 1
+  };
+  const before = f.calls.length;
+  assert.equal((await f.invoke('alice', `/api/teams/${team.id}/whiteboard`, 'PUT', { state: JSON.stringify(shared) })).status, 200);
+  assert.equal(f.calls.slice(before).filter((call) => new URL(call.url).pathname.startsWith('/read/volley_players/')).length, 1);
+  for (const id of [0, -1, 1.5, '1', '1/../../volley_teams/1', null, true]) {
+    const start = f.calls.length;
+    assert.equal((await f.invoke('alice', `/api/teams/${team.id}/whiteboard`, 'PUT', { state: JSON.stringify(board([{ id, slot: 'COL' }])) })).status, 400);
+    assert.equal(f.calls.slice(start).some((call) => new URL(call.url).pathname.startsWith('/read/volley_players/')), false);
+  }
 });

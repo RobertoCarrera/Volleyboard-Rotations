@@ -113,13 +113,12 @@ function publicPlayer(row) {
   return { id: Number(row.id), teamId: Number(row.team_id), name: row.name, number: row.number, ratings, deleted: deletedFlag(row.deleted) };
 }
 
-function normalizeBoard(encoded, players) {
+function parseBoard(encoded) {
   let saved;
   try { saved = JSON.parse(encoded); } catch { throw new RequestError('La pizarra no es válida.'); }
   const invalid = () => { throw new RequestError('La pizarra no es válida. Revisa los jugadores y sus posiciones.'); };
   if (!isObject(saved) || !Array.isArray(saved.sets) || saved.sets.length < 1 || saved.sets.length > 5
     || !isId(saved.activeId) || !saved.sets.some((set) => set?.id === saved.activeId)) invalid();
-  const playerIds = new Set(players.map((player) => Number(player.id)));
   const setIds = new Set();
   const sets = saved.sets.map((set) => {
     if (!isObject(set) || !isId(set.id) || setIds.has(set.id) || typeof set.name !== 'string' || set.name.length > 100
@@ -129,7 +128,7 @@ function normalizeBoard(encoded, players) {
     const rosterIds = new Set();
     const occupied = new Set();
     const roster = set.roster.map((entry) => {
-      if (!isObject(entry) || !isId(entry.id) || !playerIds.has(entry.id) || rosterIds.has(entry.id)
+      if (!isObject(entry) || !isId(entry.id) || rosterIds.has(entry.id)
         || (entry.slot !== null && !SLOTS.has(entry.slot)) || (entry.slot && occupied.has(entry.slot))) invalid();
       rosterIds.add(entry.id);
       if (entry.slot) occupied.add(entry.slot);
@@ -139,7 +138,7 @@ function normalizeBoard(encoded, players) {
     });
     return { id: set.id, name: set.name, rotation: set.rotation, phase: set.phase, roster };
   });
-  return JSON.stringify({ sets, activeId: saved.activeId });
+  return { sets, activeId: saved.activeId };
 }
 
 async function readPayload(request) {
@@ -178,7 +177,7 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
       if (!session?.user?.id) return failure('Inicia sesión de nuevo para acceder a tus equipos.', 401);
       const ownerKey = createHash('sha256').update(`google:${session.user.id}`).digest('hex');
       const payload = ['POST', 'PATCH', 'PUT'].includes(request.method) ? await readPayload(request) : null;
-      const upstream = async (path, { method = 'GET', body, filters = {} } = {}) => {
+      const upstream = async (path, { method = 'GET', body, filters = {}, allowNotFound = false } = {}) => {
         const endpoint = new URL(path, env.NCB_DATA_API_URL);
         endpoint.searchParams.set('Instance', env.NCB_INSTANCE);
         for (const [key, value] of Object.entries(filters)) endpoint.searchParams.set(key, String(value));
@@ -192,6 +191,7 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
           ...(body ? { body: JSON.stringify(body) } : {})
         });
         const data = await response.json();
+        if (allowNotFound && response.status === 404 && isObject(data)) return null;
         if (!response.ok || data.status !== 'success') throw new Error('Storage request failed');
         return data;
       };
@@ -202,10 +202,16 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
         }
       };
       const readOne = async (table, id, teamId) => {
-        const result = await upstream(`/read/${table}`, { filters: { owner_key: ownerKey, id, limit: 2, ...(teamId !== undefined ? { team_id: teamId } : {}) } });
-        validateRows(result.data, { id, teamId });
-        if (result.data.length > 1) throw new Error('Non-unique storage row');
-        return result.data[0] ?? null;
+        // The documented primary-key route returns one object. Authorize that
+        // object before exposing it; collection filters are not a substitute.
+        const result = await upstream(`/read/${table}/${id}`, { allowNotFound: true });
+        if (result === null) return null;
+        const row = result.data;
+        if (!isObject(row) || !isId(Number(row.id)) || Number(row.id) !== id
+          || typeof row.owner_key !== 'string' || !/^[a-f0-9]{64}$/.test(row.owner_key)
+          || (teamId !== undefined && !isId(Number(row.team_id)))) throw new Error('Malformed storage record');
+        if (row.owner_key !== ownerKey || (teamId !== undefined && Number(row.team_id) !== teamId)) return null;
+        return row;
       };
       const readAll = async (table, teamId) => {
         const rows = [];
@@ -288,9 +294,20 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
       if (request.method === 'GET' && team.board_state === null) return reply(null);
       const encoded = request.method === 'GET' ? team.board_state : payload.state;
       if (typeof encoded !== 'string' || Buffer.byteLength(encoded, 'utf8') > MAX_BODY_BYTES) throw new RequestError('La pizarra no es válida.');
-      const players = await readAll(PLAYER_TABLE, route.teamId);
       let state;
-      try { state = normalizeBoard(encoded, players); } catch (error) {
+      try {
+        // Parse all structure before expanding IDs: at most five sets with eight
+        // players each, and only positive integer references become API paths.
+        const saved = parseBoard(encoded);
+        const players = await readAll(PLAYER_TABLE, route.teamId);
+        const knownIds = new Set(players.map((player) => Number(player.id)));
+        const missingIds = [...new Set(saved.sets.flatMap((set) => set.roster.map((player) => player.id)))].filter((id) => !knownIds.has(id));
+        for (const id of missingIds) {
+          const player = await readOne(PLAYER_TABLE, id, route.teamId);
+          if (!player) throw new RequestError('La pizarra no es válida. Revisa los jugadores y sus posiciones.');
+        }
+        state = JSON.stringify(saved);
+      } catch (error) {
         if (request.method === 'GET') throw new Error('Stored board is invalid');
         throw error;
       }
