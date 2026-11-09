@@ -46,6 +46,7 @@ function backend(t) {
   const mutations = [];
   let failSave = false;
   let teamCreateWait = null;
+  let staleDeletionResponse = false;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (url === '/api/auth/session') return Response.json({ user: { id: 'coach-123', name: 'Coach' }, expires: '2027-01-01T00:00:00.000Z' });
     const method = options.method || 'GET';
@@ -82,15 +83,19 @@ function backend(t) {
       }
       const player = players.find((item) => item.id === Number(parts[4]) && item.teamId === teamId);
       assert.ok(player, 'The UI must scope a player mutation to its team');
+      const previousDeleted = player.deleted;
       if (method === 'DELETE') player.deleted = true;
       else Object.assign(player, body);
-      return ok({ ...player });
+      return ok({ ...player, deleted: staleDeletionResponse && (method === 'DELETE' || body?.deleted === false) ? previousDeleted : player.deleted });
     }
+    const previousDeleted = team.deleted;
     if (method === 'DELETE') team.deleted = true;
     if (method === 'PATCH') Object.assign(team, body);
-    return ok({ ...team, players: players.filter((player) => player.teamId === teamId).map((player) => ({ ...player })) });
+    return ok({ ...team, deleted: staleDeletionResponse && (method === 'DELETE' || body?.deleted === false) ? previousDeleted : team.deleted,
+      players: players.filter((player) => player.teamId === teamId).map((player) => ({ ...player })) });
   });
   return { teams, players, boards, mutations, setSaveFailure(value) { failSave = value; },
+    setStaleDeletionResponse(value) { staleDeletionResponse = value; },
     holdTeamCreate() { let release; teamCreateWait = new Promise((resolve) => { release = resolve; }); return release; } };
 }
 
@@ -239,4 +244,44 @@ test('team and player forms are exclusive so creating a team cannot discard a pl
   await act(async () => { await queuedTeamSubmit({ preventDefault() {} }); });
   assert.equal(api.teams.some((team) => team.name === 'Otro equipo'), false, 'An already queued team submit must not replace an active player draft');
   assert.equal(tree.root.findByProps({ 'aria-label': 'Nombre del jugador' }).props.value, 'Borrador conservado');
+});
+
+test('a successful HTTP response with the old deletion state cannot hide or restore teams or players locally', async (t) => {
+  const { tree, api } = await mount(t);
+  const hasErrorWithoutSuccess = () => {
+    assert.ok(tree.root.findAllByProps({ role: 'alert' }).length > 0);
+    assert.equal(tree.root.findAllByProps({ className: 'wb-notice' }).length, 0, 'Do not announce an unconfirmed deletion or restoration');
+  };
+  api.setStaleDeletionResponse(true);
+  await click(tree, 'Eliminar equipo');
+  await click(tree, 'Confirmar eliminación');
+  hasErrorWithoutSuccess();
+  assert.equal(tree.root.findByProps({ 'aria-label': 'Equipo de la pizarra' }).props.value, '12');
+  assert.ok(button(tree, 'Confirmar eliminación'), 'Keep the confirmation available for retry');
+
+  api.setStaleDeletionResponse(false);
+  await click(tree, 'Confirmar eliminación');
+  await click(tree, 'Papelera de equipos (1)');
+  api.setStaleDeletionResponse(true);
+  await click(tree, 'Restaurar equipo Equipo A');
+  hasErrorWithoutSuccess();
+  assert.equal(tree.root.findByProps({ 'aria-label': 'Equipo de la pizarra' }).props.value, 'personal');
+  assert.ok(button(tree, 'Restaurar equipo Equipo A'));
+
+  api.setStaleDeletionResponse(false);
+  await click(tree, 'Restaurar equipo Equipo A');
+  await click(tree, 'Plantilla');
+  api.setStaleDeletionResponse(true);
+  await click(tree, 'Eliminar a Ana');
+  await click(tree, 'Confirmar eliminación');
+  hasErrorWithoutSuccess();
+  assert.ok(button(tree, 'Editar a Ana'), 'The player remains in the visible catalogue until confirmed');
+
+  api.setStaleDeletionResponse(false);
+  await click(tree, 'Confirmar eliminación');
+  await click(tree, 'Papelera de jugadores');
+  api.setStaleDeletionResponse(true);
+  await click(tree, 'Restaurar a Ana');
+  hasErrorWithoutSuccess();
+  assert.ok(button(tree, 'Restaurar a Ana'), 'A stale response must not remove the player from the trash');
 });

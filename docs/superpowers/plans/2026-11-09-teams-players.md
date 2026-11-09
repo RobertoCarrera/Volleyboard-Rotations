@@ -73,3 +73,7 @@
 `npm run build`: lint passed, 67 tests passed and Vite built successfully.
 Independent review found two UI draft-loss paths; both have RED/GREEN regression tests and are fixed.
 Real NoCodeBackend integration verified two teams per owner, CRUD, zero/null scores, board persistence, cross-team rejection, and recoverable deletion/restoration. The three test rows were removed by their exact generated IDs after verification.
+
+## Follow-up from published verification
+
+The first published UI run exposed an immediate stale read after a successful team restoration: the database held `deleted=0` while the next API read returned 404. The server adapters now request no-cache/no-store upstream reads; team mutations confirm the returned fields before reporting success; DELETE always writes the desired state. Client and UI also reject stale mutation results rather than forcing deletion flags locally. Regression coverage includes cached lists, zero/null comparison, rename, restore and deletion. The combined suite now has 77 passing tests.

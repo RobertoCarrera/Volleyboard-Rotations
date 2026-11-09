@@ -183,8 +183,12 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
         endpoint.searchParams.set('Instance', env.NCB_INSTANCE);
         for (const [key, value] of Object.entries(filters)) endpoint.searchParams.set(key, String(value));
         const response = await fetchImpl(endpoint, {
-          method, redirect: 'error', signal: AbortSignal.timeout(12000),
-          headers: { authorization: `Bearer ${env.NCB_SECRET_KEY}`, accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
+          method, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(12000),
+          headers: {
+            authorization: `Bearer ${env.NCB_SECRET_KEY}`, accept: 'application/json',
+            'cache-control': 'no-cache, no-store', pragma: 'no-cache',
+            ...(body ? { 'content-type': 'application/json' } : {})
+          },
           ...(body ? { body: JSON.stringify(body) } : {})
         });
         const data = await response.json();
@@ -222,7 +226,17 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
       const update = async (table, row, changes) => {
         await upstream(`/update/${table}/${Number(row.id)}`, { method: 'PUT', body: changes });
         const updated = await readOne(table, Number(row.id), table === PLAYER_TABLE ? Number(row.team_id) : undefined);
-        if (!updated) throw new Error('Updated record missing');
+        const confirmed = updated && Object.entries(changes).every(([key, expected]) => {
+          const actual = updated[key];
+          if (typeof expected === 'number') {
+            return (typeof actual === 'number' || (typeof actual === 'string' && actual.trim() !== ''))
+              && Number(actual) === expected;
+          }
+          return actual === expected;
+        });
+        // A provider may acknowledge a write before a later read reflects it.
+        // Never report the old row as successfully saved, or coerce null to 0.
+        if (!confirmed) throw new RequestError('No se ha podido confirmar el cambio. Recarga los datos antes de volver a intentarlo.', 409);
         return updated;
       };
       const create = async (table, changes, teamId) => {
@@ -246,7 +260,7 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
       if (!team) throw new RequestError('Equipo no encontrado.', 404);
       const archivedTeam = deletedFlag(team.deleted);
       if (route.kind === 'team') {
-        if (request.method === 'DELETE') return reply(publicTeam(archivedTeam ? team : await update(TEAM_TABLE, team, { deleted: 1 })));
+        if (request.method === 'DELETE') return reply(publicTeam(await update(TEAM_TABLE, team, { deleted: 1 })));
         if (request.method === 'PATCH') {
           if (archivedTeam && payload.deleted !== false) throw new RequestError('Equipo no encontrado.', 404);
           return reply(publicTeam(await update(TEAM_TABLE, team, teamChanges(payload))));
@@ -266,7 +280,7 @@ export function createTeamsHandler({ readSession, fetchImpl = fetch }) {
         const player = await readOne(PLAYER_TABLE, route.playerId, route.teamId);
         if (!player) throw new RequestError('Jugador no encontrado.', 404);
         const archived = deletedFlag(player.deleted);
-        if (request.method === 'DELETE') return reply(publicPlayer(archived ? player : await update(PLAYER_TABLE, player, { deleted: 1 })));
+        if (request.method === 'DELETE') return reply(publicPlayer(await update(PLAYER_TABLE, player, { deleted: 1 })));
         if (archived && payload.deleted !== false) throw new RequestError('Jugador no encontrado.', 404);
         return reply(publicPlayer(await update(PLAYER_TABLE, player, playerChanges(payload))));
       }

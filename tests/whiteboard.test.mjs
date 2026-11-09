@@ -11,8 +11,9 @@ const request = (user, method = 'GET', payload, headers = {}) => new Request(`${
   ...(payload ? { body: JSON.stringify(payload) } : {})
 });
 
-function fixture({ ignoreFilter = false, upstreamFailure = false, race = false } = {}) {
+function fixture({ ignoreFilter = false, upstreamFailure = false, race = false, cacheReads = false } = {}) {
   const rows = [];
+  const readCache = new Map();
   let calls = 0;
   const handle = createWhiteboardHandler({
     readSession: async (req) => {
@@ -29,7 +30,11 @@ function fixture({ ignoreFilter = false, upstreamFailure = false, race = false }
       if (url.pathname === '/read/whiteboard_sets') {
         const owner = url.searchParams.get('owner_key');
         assert.match(owner, /^[a-f0-9]{64}$/);
-        return Response.json({ status: 'success', data: rows.filter((row) => ignoreFilter || row.owner_key === owner) });
+        const fresh = options.cache === 'no-store' && /no-cache/.test(new Headers(options.headers).get('cache-control') || '');
+        if (cacheReads && !fresh && readCache.has(url.href)) return Response.json(readCache.get(url.href));
+        const data = { status: 'success', data: structuredClone(rows.filter((row) => ignoreFilter || row.owner_key === owner)) };
+        if (cacheReads && !fresh) readCache.set(url.href, data);
+        return Response.json(data);
       }
       const payload = JSON.parse(options.body);
       if (url.pathname === '/create/whiteboard_sets') {
@@ -125,4 +130,15 @@ test('a concurrent first save recovers the same owned row instead of duplicating
   assert.equal(res.status, 200);
   assert.equal(f.rows.length, 1);
   assert.equal((await (await f.handle(request('alice'))).json()).data.state, board('R3'));
+});
+
+test('a fresh personal-board read cannot reuse a cached state after saving a new rotation', async () => {
+  const f = fixture({ cacheReads: true });
+  assert.equal((await f.handle(request('alice', 'PUT', { state: board('R1') }))).status, 200);
+  await f.handle(request('alice'));
+  assert.equal((await f.handle(request('alice', 'PUT', { state: board('R6') }))).status, 200);
+  const loaded = (await (await f.handle(request('alice'))).json()).data;
+  assert.ok(loaded, 'A cached empty read must not hide the saved board');
+  assert.equal(loaded.state, board('R6'));
+  assert.equal(f.rows.length, 1);
 });

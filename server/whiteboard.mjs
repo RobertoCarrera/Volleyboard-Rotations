@@ -72,8 +72,8 @@ export function createWhiteboardHandler({ readSession, fetchImpl = fetch }) {
         endpoint.searchParams.set('Instance', env.NCB_INSTANCE);
         if (filter) { endpoint.searchParams.set('owner_key', ownerKey); endpoint.searchParams.set('limit', '2'); }
         const response = await fetchImpl(endpoint, {
-          method, redirect: 'error', signal: AbortSignal.timeout(12000),
-          headers: { authorization: `Bearer ${env.NCB_SECRET_KEY}`, accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
+          method, redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(12000),
+          headers: { authorization: `Bearer ${env.NCB_SECRET_KEY}`, accept: 'application/json', 'cache-control': 'no-cache, no-store', pragma: 'no-cache', ...(body ? { 'content-type': 'application/json' } : {}) },
           ...(body ? { body: JSON.stringify(body) } : {})
         });
         const data = await response.json();

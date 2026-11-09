@@ -112,3 +112,19 @@ test('player deletion and restoration remain scoped to their team and support ca
     ['/api/teams/12/players/31', 'PATCH', { deleted: false }]
   ]);
 });
+
+test('a stale successful response cannot confirm a team or player mutation', async (t) => {
+  let data = { ...team, deleted: true };
+  t.mock.method(globalThis, 'fetch', async () => ok(data));
+  assert.equal((await api.updateTeam(12, { deleted: false })).status, 'error');
+  data = team;
+  assert.equal((await api.updateTeam(12, { name: 'Nombre actualizado' })).status, 'error');
+  assert.equal((await api.deleteTeam(12)).status, 'error');
+  data = { ...player, deleted: true };
+  assert.equal((await api.updatePlayer(12, 31, { deleted: false })).status, 'error');
+  data = player;
+  assert.equal((await api.updatePlayer(12, 31, { ratings: { COL: 5 } })).status, 'error');
+  assert.equal((await api.deletePlayer(12, 31)).status, 'error');
+  data = { ...player, ratings: { ...player.ratings, COL: 0 } };
+  assert.equal((await api.updatePlayer(12, 31, { ratings: { COL: 0 } })).status, 'success');
+});

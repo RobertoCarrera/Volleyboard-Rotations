@@ -181,7 +181,9 @@ async function teamRequest(path, method, data, options = {}, validate) {
     ...(data !== undefined ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) } : {})
   });
   if (response.status === 'success' && validate && !validate(response.data)) {
-    return failure('Los datos del equipo no se pueden leer. No se han sobrescrito tus datos.');
+    return failure(method === 'GET'
+      ? 'Los datos del equipo no se pueden leer. No se han sobrescrito tus datos.'
+      : 'El servidor aún no ha confirmado el cambio. Vuelve a cargar los datos antes de repetirlo.');
   }
   return response;
 }
@@ -196,21 +198,39 @@ function playerPath(teamId, playerId) {
   return id ? teamPath(teamId, `/players/${id}`) : null;
 }
 
+function matchesChanges(record, changes) {
+  for (const key of ['name', 'number', 'deleted']) {
+    if (Object.hasOwn(changes, key)) {
+      const expected = typeof changes[key] === 'string' ? changes[key].trim() : changes[key];
+      if (record[key] !== expected) return false;
+    }
+  }
+  if (Object.hasOwn(changes, 'ratings')) {
+    if (!changes.ratings || typeof changes.ratings !== 'object' || Array.isArray(changes.ratings)) return false;
+    if (!Object.entries(changes.ratings).every(([key, value]) => record.ratings?.[key] === value)) return false;
+  }
+  return true;
+}
+
 export const listTeams = (options = {}) => teamRequest('/api/teams', 'GET', undefined, options,
   (teams) => Array.isArray(teams) && teams.every(validTeam)
     && new Set(teams.map((team) => team.id)).size === teams.length);
-export const createTeam = (data, options = {}) => teamRequest('/api/teams', 'POST', data, options, validTeam);
+export const createTeam = (data, options = {}) => teamRequest('/api/teams', 'POST', data, options,
+  (team) => validTeam(team) && matchesChanges(team, data));
 export const getTeam = (id, options = {}) => teamRequest(teamPath(id), 'GET', undefined, options,
   (team) => validTeam(team) && team.id === Number(id) && Array.isArray(team.players)
     && team.players.every((player) => validPlayer(player, id))
     && new Set(team.players.map((player) => player.id)).size === team.players.length);
-export const updateTeam = (id, data, options = {}) => teamRequest(teamPath(id), 'PATCH', data, options, validTeam);
-export const deleteTeam = (id, options = {}) => teamRequest(teamPath(id), 'DELETE', undefined, options);
+export const updateTeam = (id, data, options = {}) => teamRequest(teamPath(id), 'PATCH', data, options,
+  (team) => validTeam(team) && team.id === Number(id) && matchesChanges(team, data));
+export const deleteTeam = (id, options = {}) => teamRequest(teamPath(id), 'DELETE', undefined, options,
+  (team) => validTeam(team) && team.id === Number(id) && team.deleted);
 export const createPlayer = (teamId, data, options = {}) => teamRequest(teamPath(teamId, '/players'), 'POST', data, options,
-  (player) => validPlayer(player, teamId));
+  (player) => validPlayer(player, teamId) && matchesChanges(player, data));
 export const updatePlayer = (teamId, id, data, options = {}) => teamRequest(playerPath(teamId, id), 'PATCH', data, options,
-  (player) => validPlayer(player, teamId) && player.id === Number(id));
-export const deletePlayer = (teamId, id, options = {}) => teamRequest(playerPath(teamId, id), 'DELETE', undefined, options);
+  (player) => validPlayer(player, teamId) && player.id === Number(id) && matchesChanges(player, data));
+export const deletePlayer = (teamId, id, options = {}) => teamRequest(playerPath(teamId, id), 'DELETE', undefined, options,
+  (player) => validPlayer(player, teamId) && player.id === Number(id) && player.deleted);
 
 export async function loadWhiteboard(options = {}) {
   const path = boardPath(options.teamId);

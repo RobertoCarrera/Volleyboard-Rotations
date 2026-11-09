@@ -14,9 +14,12 @@ const request = (user, path = '/api/teams', method = 'GET', payload, headers = {
   ...(payload !== undefined ? { body: JSON.stringify(payload) } : {})
 });
 
-function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = false, repeatPage = false } = {}) {
+function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = false, repeatPage = false,
+  cacheReads = false, staleAfterUpdate = false, staleDeletedTable = null, numericStrings = false } = {}) {
   const tables = { volley_teams: [], volley_players: [] };
   const calls = [];
+  const cached = new Map();
+  let oldRow = null;
   const handle = createTeamsHandler({
     readSession: async (req) => {
       const id = req.headers.get('cookie')?.match(/^test-user=(.+)$/)?.[1];
@@ -24,7 +27,9 @@ function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = fa
     },
     fetchImpl: async (input, options = {}) => {
       const url = new URL(input);
-      calls.push({ url: url.href, method: options.method ?? 'GET' });
+      const requestHeaders = new Headers(options.headers);
+      calls.push({ url: url.href, method: options.method ?? 'GET', cache: options.cache,
+        cacheControl: requestHeaders.get('cache-control'), pragma: requestHeaders.get('pragma') });
       assert.equal(url.origin, 'https://eu-api.nocodebackend.com');
       assert.equal(new Headers(options.headers).get('authorization'), 'Bearer server-test-secret');
       assert.equal(url.searchParams.get('Instance'), 'test');
@@ -37,13 +42,24 @@ function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = fa
       if (operation === 'read') {
         assert.equal(options.method ?? 'GET', 'GET');
         assert.match(url.searchParams.get('owner_key'), /^[a-f0-9]{64}$/);
+        const bypass = requestHeaders.get('cache-control')?.split(',').map((value) => value.trim()).includes('no-cache');
+        if (cacheReads && !bypass && cached.has(url.href)) return Response.json(cached.get(url.href));
         let selected = rows.filter((row) => ignoreOwner || row.owner_key === url.searchParams.get('owner_key'));
         if (url.searchParams.has('team_id')) selected = selected.filter((row) => ignoreTeam || row.team_id === Number(url.searchParams.get('team_id')));
         if (url.searchParams.has('id')) selected = selected.filter((row) => row.id === Number(url.searchParams.get('id')));
         selected.sort((a, b) => a.id - b.id);
         const page = repeatPage ? 1 : Number(url.searchParams.get('page') ?? 1);
         const limit = Number(url.searchParams.get('limit') ?? 50);
-        return Response.json({ status: 'success', data: selected.slice((page - 1) * limit, page * limit) });
+        selected = structuredClone(selected.slice((page - 1) * limit, page * limit));
+        if (staleAfterUpdate && oldRow?.table === table && url.searchParams.get('id') === String(oldRow.row.id)) {
+          selected = selected.map((row) => row.id === oldRow.row.id ? oldRow.row : row);
+          oldRow = null;
+        }
+        if (staleDeletedTable === table) selected = selected.map((row) => ({ ...row, deleted: 1 }));
+        if (numericStrings) selected = selected.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'number' ? String(value) : value])));
+        const result = { status: 'success', data: selected };
+        if (cacheReads && !bypass) cached.set(url.href, structuredClone(result));
+        return Response.json(result);
       }
       const payload = JSON.parse(options.body);
       if (operation === 'create') {
@@ -60,6 +76,7 @@ function fixture({ ignoreOwner = false, ignoreTeam = false, upstreamFailure = fa
       assert.ok(row, 'only existing, previously authorized records may be updated');
       assert.equal(payload.owner_key, undefined);
       assert.equal(payload.team_id, undefined);
+      if (staleAfterUpdate) oldRow = { table, row: structuredClone(row) };
       Object.assign(row, payload, { updated_at: '2026-11-09 00:01:00' });
       return Response.json({ status: 'success', message: 'Record updated successfully' });
     }
@@ -317,4 +334,96 @@ test('configuration and storage failures are redacted and never cached', async (
   assert.match(response.headers.get('cache-control'), /no-store/);
   assert.equal((await f.handle(request('alice'), { ...env, NCB_DATA_API_URL: 'https://attacker.example' })).status, 503);
   assert.equal((await f.handle(request('alice'), { ...env, AUTH_ORIGIN: `${origin}/unexpected` })).status, 503);
+});
+
+test('restoring a team bypasses an earlier cached archived row and the next GET is active', async () => {
+  const f = fixture({ cacheReads: true });
+  f.tables.volley_teams.push({ id: 1, owner_key: owner('alice'), name: 'Restaurable', deleted: 1, board_state: null });
+  assert.equal((await f.invoke('alice', '/api/teams/1')).status, 404);
+  const restored = await f.invoke('alice', '/api/teams/1', 'PATCH', { deleted: false });
+  assert.equal(restored.status, 200);
+  assert.equal((await restored.json()).data.deleted, false);
+  const loaded = await f.invoke('alice', '/api/teams/1');
+  assert.equal(loaded.status, 200);
+  assert.equal((await loaded.json()).data.deleted, false);
+  for (const call of f.calls) {
+    assert.equal(call.cache, 'no-store');
+    assert.match(call.cacheControl, /no-cache/);
+    assert.match(call.cacheControl, /no-store/);
+    assert.equal(call.pragma, 'no-cache');
+  }
+});
+
+test('renaming a team returns the new name despite a previously cached read', async () => {
+  const f = fixture({ cacheReads: true });
+  const team = await f.createTeam('alice', 'Before');
+  await f.invoke('alice', `/api/teams/${team.id}`);
+  const renamed = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { name: 'After' });
+  assert.equal(renamed.status, 200);
+  assert.equal((await renamed.json()).data.name, 'After');
+});
+
+test('creating a player refreshes its team roster before the new reference is saved', async () => {
+  const f = fixture({ cacheReads: true });
+  const team = await f.createTeam();
+  assert.equal((await (await f.invoke('alice', `/api/teams/${team.id}`)).json()).data.players.length, 0);
+  const player = await f.createPlayer(team.id);
+  const details = (await (await f.invoke('alice', `/api/teams/${team.id}`)).json()).data;
+  assert.equal(details.players.length, 1);
+  const saved = await f.invoke('alice', `/api/teams/${team.id}/whiteboard`, 'PUT', { state: JSON.stringify(board([{ id: player.id, slot: 'COL' }])) });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(JSON.parse((await saved.json()).data.state), board([{ id: player.id, slot: 'COL' }]));
+});
+
+test('a stale post-update read cannot be reported as confirmed success', async () => {
+  const f = fixture({ staleAfterUpdate: true });
+  const team = await f.createTeam('alice', 'Before');
+  const renamed = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { name: 'After' });
+  assert.equal(renamed.status, 409);
+  const result = await renamed.json();
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /confirmar/i);
+  assert.match(result.error, /recarga/i);
+  assert.equal(result.data, undefined);
+  assert.equal(JSON.stringify(result).includes('server-test-secret'), false);
+  assert.equal(f.tables.volley_teams[0].name, 'After', 'an ambiguous acknowledgement must not claim the write never happened');
+});
+
+test('update confirmation distinguishes an unassigned rating from a real zero', async () => {
+  const f = fixture({ staleAfterUpdate: true });
+  const team = await f.createTeam();
+  const player = await f.createPlayer(team.id);
+  const path = `/api/teams/${team.id}/players/${player.id}`;
+  assert.equal((await f.invoke('alice', path, 'PATCH', { ratings: { COL: null } })).status, 409);
+  assert.equal(f.tables.volley_players[0].rating_col, null);
+  assert.equal((await f.invoke('alice', path, 'PATCH', { ratings: { COL: 0 } })).status, 409);
+  assert.equal(f.tables.volley_players[0].rating_col, 0);
+});
+
+test('update confirmation accepts numeric storage strings without treating null as zero', async () => {
+  const f = fixture({ numericStrings: true });
+  const team = await f.createTeam();
+  const player = await f.createPlayer(team.id);
+  await f.invoke('alice', `/api/teams/${team.id}`, 'DELETE');
+  const restored = await f.invoke('alice', `/api/teams/${team.id}`, 'PATCH', { deleted: false });
+  assert.equal(restored.status, 200);
+  assert.equal((await restored.json()).data.deleted, false);
+  const changed = await f.invoke('alice', `/api/teams/${team.id}/players/${player.id}`, 'PATCH', { ratings: { COL: 5, O: null } });
+  assert.equal(changed.status, 200);
+  assert.deepEqual((await changed.json()).data.ratings, { COL: 5, O: null, R: 2, C: 3, L: 4 });
+});
+
+test('DELETE still writes the requested state when a stale row says it is already archived', async () => {
+  const teams = fixture({ staleDeletedTable: 'volley_teams' });
+  const team = await teams.createTeam();
+  assert.equal(teams.tables.volley_teams[0].deleted, 0);
+  assert.equal((await teams.invoke('alice', `/api/teams/${team.id}`, 'DELETE')).status, 200);
+  assert.equal(teams.tables.volley_teams[0].deleted, 1);
+
+  const players = fixture({ staleDeletedTable: 'volley_players' });
+  const activeTeam = await players.createTeam();
+  const player = await players.createPlayer(activeTeam.id);
+  assert.equal(players.tables.volley_players[0].deleted, 0);
+  assert.equal((await players.invoke('alice', `/api/teams/${activeTeam.id}/players/${player.id}`, 'DELETE')).status, 200);
+  assert.equal(players.tables.volley_players[0].deleted, 1);
 });

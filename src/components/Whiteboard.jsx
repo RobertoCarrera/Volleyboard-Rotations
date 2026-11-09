@@ -113,6 +113,15 @@ export default function Whiteboard({ onClose }) {
     return true;
   };
 
+  const acceptDeletion = (response, expectedDeleted) => {
+    if (!accept(response)) return false;
+    if (response.data?.deleted !== expectedDeleted) {
+      setError('El servidor todavía no ha confirmado el cambio. Inténtalo de nuevo.');
+      return false;
+    }
+    return true;
+  };
+
   const selectTeam = (id) => {
     if (id === selectedId) return Promise.resolve(true);
     return perform(async () => {
@@ -158,16 +167,16 @@ export default function Whiteboard({ onClose }) {
 
   const restorePlayer = (player) => perform(async () => {
     const response = await updatePlayer(currentTeam.id, player.id, { deleted: false });
-    if (!accept(response)) return false;
-    setTeamData((current) => ({ ...current, players: current.players.map((item) => item.id === player.id ? { ...item, ...response.data, deleted: false } : item) }));
+    if (!acceptDeletion(response, false)) return false;
+    setTeamData((current) => ({ ...current, players: current.players.map((item) => item.id === player.id ? { ...item, ...response.data } : item) }));
     setNotice(`${player.name} se ha restaurado.`);
     return true;
   });
 
   const restoreTeam = (team) => perform(async () => {
     const response = await updateTeam(team.id, { deleted: false });
-    if (!accept(response)) return false;
-    setTeams((current) => current.map((item) => item.id === team.id ? { ...item, ...response.data, deleted: false } : item));
+    if (!acceptDeletion(response, false)) return false;
+    setTeams((current) => current.map((item) => item.id === team.id ? { ...item, ...response.data } : item));
     setSelectedId(String(team.id));
     setView('board');
     setShowTrash(false);
@@ -179,13 +188,13 @@ export default function Whiteboard({ onClose }) {
     if (!confirmation) return false;
     const { kind, item } = confirmation;
     const response = kind === 'team' ? await deleteTeam(item.id) : await deletePlayer(currentTeam.id, item.id);
-    if (!accept(response)) return false;
+    if (!acceptDeletion(response, true)) return false;
     if (kind === 'team') {
-      setTeams((current) => current.map((team) => team.id === item.id ? { ...team, deleted: true } : team));
+      setTeams((current) => current.map((team) => team.id === item.id ? { ...team, ...response.data } : team));
       setSelectedId('personal');
       setView('board');
     } else {
-      setTeamData((current) => ({ ...current, players: current.players.map((player) => player.id === item.id ? { ...player, deleted: true } : player) }));
+      setTeamData((current) => ({ ...current, players: current.players.map((player) => player.id === item.id ? { ...player, ...response.data } : player) }));
     }
     setConfirmation(null);
     setNotice(`${item.name} se ha movido a la papelera.`);
