@@ -109,12 +109,12 @@ export default function TeamWhiteboard({ team, onRegisterFlush, onManagePlayers,
             <WhiteboardBench bench={bench} waiting={waiting} interaction={interaction} onRemove={removePlayer} disabled={locked} />
           </div>
           <aside className="wb-side">
+            <div className="wb-card wb-lineup-card"><span className="eyebrow">{active.name} · {system.label}</span><h3>Posiciones del set</h3><p>Pulsa un jugador y después su posición. Aquí también puedes colocar a los centrales y líberos que esperan fuera de pista.</p><TeamLineupSlots system={system} roster={resolvedRoster} interaction={interaction} onBench={returnToBench} disabled={locked} /></div>
             <TeamSetRoster players={team.players} roster={active.roster} onToggle={togglePlayer} onAddAll={addAll} onManagePlayers={onManagePlayers} disabled={locked} />
             {unavailable.length > 0 && <div className="wb-unavailable"><p>Hay jugadores de este set que están en la papelera.</p>{unavailable.map((entry) => {
               const player = team.players.find((item) => item.id === entry.id);
               return <button className="wb-danger-text" type="button" key={entry.id} onClick={() => removePlayer(entry.id)} aria-label={`Quitar a ${player?.name || 'Jugador no disponible'} de este set`}>Quitar a {player?.name || 'jugador no disponible'}</button>;
             })}</div>}
-            <div className="wb-card"><span className="eyebrow">{active.name} · {system.label}</span><h3>Posiciones del set</h3><p>Pulsa un jugador y después su posición. Aquí también puedes colocar a los centrales y líberos que esperan fuera de pista.</p><TeamLineupSlots system={system} roster={resolvedRoster} interaction={interaction} onBench={returnToBench} disabled={locked} /></div>
             <button type="button" className="wb-delete" onClick={removeSet} disabled={sets.length === 1}>Eliminar este set</button>
           </aside>
         </div>

@@ -357,6 +357,7 @@
   .wb-team-layout .wb-set-roster { order: 1; }
   .wb-team-layout .wb-stage { order: 2; }
   .wb-team-layout .wb-side > :not(.wb-set-roster) { order: 3; }
+  .wb-team-layout .wb-side > .wb-lineup-card { order: 0; }
   .wb-team-layout .wb-roster-checklist { max-height: 290px; }
   .wb-bench-player { grid-template-columns: 38px minmax(0, 1fr) 38px; }
   .wb-bench-grip, .wb-bench-remove { min-height: 46px; }
